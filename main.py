@@ -37,13 +37,13 @@ def run_simulation():
         agents = [agent for agent in agents if agent.is_alive]
         tracked_prey = None
         for agent in agents:
-            if agent.type == "prey":
+            if agent.type == "predator":
                 tracked_prey = agent
                 break  # Stop when the first prey is found
 
         # Move and draw agents
         for agent in agents:
-            agent.move(screen)  # Move the agent (with recovery handling within the move method)
+            agent.move(screen, agents)  # Move the agent (with recovery handling within the move method)
             agent.draw(screen)
 
         debug_text(screen, str(tracked_prey.is_recovering))
