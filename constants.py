@@ -11,9 +11,4 @@ YELLOW = (255, 255, 0)
 
 # Simulation parameters
 FPS = 60
-NUM_PREY = 3
-NUM_PREDATORS = 2
-VISION_ANGLE = 90  # Vision cone angle in degrees
-VISION_DISTANCE = 150
-ACCELERATION = 0.2
-DECELERATION = 0.1
+NUM_AGENTS = 50

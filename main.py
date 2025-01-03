@@ -1,8 +1,8 @@
 import pygame
 import random
-import math
 from constants import *
 from agents import *
+from debug import debug_text
 
 # initialise pygame
 pygame.init()
@@ -19,9 +19,9 @@ def toggle_fullscreen():
     else:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 
-# main loop
+# Main loop to run the simulation
 def run_simulation():
-    agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(50)]
+    agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(NUM_AGENTS)]
 
     clock = pygame.time.Clock()
     running = True
@@ -33,11 +33,29 @@ def run_simulation():
             if event.type == pygame.QUIT:
                 running = False
 
+        # Remove dead agents
+        agents = [agent for agent in agents if agent.is_alive]
+        tracked_prey = None
         for agent in agents:
-            agent.move(screen)
+            if agent.type == "prey":
+                tracked_prey = agent
+                break  # Stop when the first prey is found
+
+        # Move and draw agents
+        for agent in agents:
+            agent.move(screen)  # Move the agent (with recovery handling within the move method)
             agent.draw(screen)
+
+        debug_text(screen, str(tracked_prey.is_recovering))
+        debug_text(screen, str(tracked_prey.energy), 0, 15)
+        debug_text(screen, str(tracked_prey.is_stationary), 0, 30)
+
+        # Track the prey being followed
+        if tracked_prey.is_alive:
+            pygame.draw.rect(screen, BLACK, (tracked_prey.x - 10, tracked_prey.y - 10, 20, 20), 2)  # Highlight the tracked prey
 
         pygame.display.flip()
         clock.tick(FPS)
 
+# Start simulation
 run_simulation()
