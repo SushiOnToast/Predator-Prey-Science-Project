@@ -60,51 +60,58 @@ class Agent:
 
             # Now handle the predator’s eating logic using FOV and ray-casting
             if self.type == "predator":
-                # Cast rays to detect prey within the FOV
-                ray_distances = self.cast_rays(screen, other_agents)
+                ray_intersections = self.cast_rays(screen, other_agents)
 
-                for i, distance in enumerate(ray_distances):
-                    angle_offset = (i - (self.num_rays // 2))  # Calculate the angle offset for each ray
-                    ray_direction = self.direction + math.radians(angle_offset)
+                for ray in ray_intersections:
+                    if not ray:  # Skip rays with no intersections
+                        continue
 
-                    # Check if prey is in range of any ray
-                    for agent in other_agents:
-                        if agent.type == "prey" and agent.is_alive:
-                            distance_to_prey = math.sqrt((self.x - agent.x) ** 2 + (self.y - agent.y) ** 2)
-                            if distance_to_prey <= self.size + agent.size and distance_to_prey <= distance:
-                                self.eat_prey(agent)  # Try to eat prey
+                    # Sort detected agents by distance (closest first)
+                    ray.sort(key=lambda intersection: intersection[0])
+                    for distance, agent in ray:
+                        if agent.type == "prey" and agent.is_alive and distance <= self.size + agent.size:
+                            self.eat_prey(agent)
+                            break  # Stop checking this ray once prey is eaten
+
 
     def cast_rays(self, screen, other_agents):
         """cast rays in the agent's FOV and return the distances to the closest agent"""
-        ray_distances = []
+        ray_intersections = []
         step_angle = self.fov_angle / max(1, (self.num_rays - 1)) # the angle between each of the rays
 
         for i in range(self.num_rays):
             angle_offset = (i - (self.num_rays // 2)) * math.radians(step_angle) # distrubute rays within the FOV
             ray_direction = self.direction + angle_offset
-            distance = self._cast_ray(ray_direction, screen, other_agents)
-            ray_distances.append(distance)
+            intersections = self._cast_ray(ray_direction, screen, other_agents)
+            ray_intersections.append(intersections)
 
-        return ray_distances
+        return ray_intersections
     
     def _cast_ray(self, angle, screen, other_agents):
-        """cast a single ray and return the distance to the closet object"""
-        dx = math.cos(angle) 
-        dy = math.sin(angle) 
+        """Cast a single ray and return all intersections as (distance, object) tuples."""
+        dx = math.cos(angle)
+        dy = math.sin(angle)
 
-        # loop to chec collisions
+        intersections = []
+
         for t in range(1, int(self.range + 1)):
-            x = self.x + t * dx 
-            y = self.y + t * dy 
+            x = self.x + t * dx
+            y = self.y + t * dy
 
-            if not (0 <= x < screen.get_width() and 0 <= y < screen.get_height()):  # Stop at screen borders
-                return t
+            # Stop at screen borders
+            if not (0 <= x < screen.get_width() and 0 <= y < screen.get_height()):
+                break
 
             for agent in other_agents:
                 if agent.is_alive and self._check_collision(x, y, agent):
-                    return t  # Distance to the closest agent
+                    intersections.append((t, agent))  # Append distance and agent
 
-        return self.range  # Max range if no collision
+        # Return the closest intersection or the max range
+        if intersections:
+            return intersections
+        else:
+            return [(self.range, None)]  # No intersection within range
+
     
     def _check_collision(self, x, y, agent):
         """checs if the point x, y collides with the agent"""
