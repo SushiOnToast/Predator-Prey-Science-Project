@@ -19,32 +19,25 @@ def toggle_fullscreen():
     else:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 
-# initialise agents
-prey_list = [Prey(random.randint(0, WIDTH), random.randint(0, HEIGHT), BLUE, 5, random.uniform(0.5, 2), random.uniform(0, 360), random.randint(260, 300), random.uniform(30, 70), random.randint(100, 150), random.uniform(0.5, 2)) for _ in range(NUM_PREY)]
-predator_list = [Predator(random.randint(0, WIDTH), random.randint(0, HEIGHT), RED, 8, random.uniform(0.75, 2.25), random.uniform(0, 360), random.randint(260, 300), random.uniform(30, 70), random.randint(100, 150), random.uniform(0.5, 2)) for _ in range(NUM_PREDATORS)]
-
 # main loop
-clock = pygame.time.Clock()
-running = True
+def run_simulation():
+    agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(50)]
 
-while running:
-    screen.fill(BLACK)
+    clock = pygame.time.Clock()
+    running = True
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+    while running:
+        screen.fill(WHITE)
 
-    # update and draw predators
-    for predator in predator_list:
-        predator.chase(prey_list, screen)
-        predator.move(screen)
-        predator.draw(screen)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
 
-    # update and draw prey
-    for prey in prey_list:
-        prey.evade(predator_list, screen)
-        prey.move(screen)
-        prey.draw(screen)
+        for agent in agents:
+            agent.move(screen)
+            agent.draw(screen)
 
-    pygame.display.flip()
-    clock.tick(FPS)
+        pygame.display.flip()
+        clock.tick(FPS)
+
+run_simulation()
