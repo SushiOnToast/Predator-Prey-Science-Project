@@ -1,7 +1,9 @@
 import random
 import math
 import pygame
-from constants import *  
+from constants import * 
+from neural_network import NeuralNetwork 
+import numpy as np
 
 # Define Agent Class
 class Agent:
@@ -23,9 +25,28 @@ class Agent:
         self.range = 200 if self.type == "predator" else 50
         self.digestion_cooldown = 0 # digestion cooldown for predators to ensure that they dont gain energy while its active, to prevent overaccumulation of energy
 
+        self.neural_network = NeuralNetwork(
+            input_size=2*self.num_rays, # since we need distance + object type for each ray
+            hidden_size=10, 
+            output_size=2, # angular veocity and speed
+        )
+
     def move(self, screen, other_agents):
-        """Move the agent based on its direction and speed."""
+        """Move the agent based on its direction, speed, and neural network-driven behavior."""
         if self.is_alive:
+            # Neural network-driven movement
+            ray_intersections = self.cast_rays(screen, other_agents)
+            inputs = self.process_ray_data(ray_intersections)  # Process ray data for NN inputs
+            outputs = self.neural_network.forward(inputs)  # Neural network outputs
+
+            angular_velocity = outputs[0] * MAX_ANGULAR_VELOCITY  # Scale angular velocity
+            speed_modifier = outputs[1]  # Speed output directly
+            
+            # Update direction and speed based on NN outputs
+            self.direction += angular_velocity
+            self.speed = max(0, min(self.speed + speed_modifier, MAX_SPEED))  # Clamp speed
+            
+            # Movement logic
             if self.energy > 0 and not self.is_recovering:  # Only move if not recovering
                 self.x += self.speed * math.cos(self.direction)
                 self.y += self.speed * math.sin(self.direction)
@@ -55,13 +76,12 @@ class Agent:
             elif self.is_recovering:  # If recovering, manage recovery process
                 self.manage_recovery()
 
+            # Digestion cooldown logic
             if self.digestion_cooldown > 0:
                 self.digestion_cooldown -= 1
 
-            # Now handle the predator’s eating logic using FOV and ray-casting
+            # Predator eating logic using FOV and ray-casting
             if self.type == "predator":
-                ray_intersections = self.cast_rays(screen, other_agents)
-
                 for ray in ray_intersections:
                     if not ray:  # Skip rays with no intersections
                         continue
@@ -72,7 +92,6 @@ class Agent:
                         if agent.type == "prey" and agent.is_alive and distance <= self.size + agent.size:
                             self.eat_prey(agent)
                             break  # Stop checking this ray once prey is eaten
-
 
     def cast_rays(self, screen, other_agents):
         """cast rays in the agent's FOV and return the distances to the closest agent"""
@@ -117,6 +136,29 @@ class Agent:
         """checs if the point x, y collides with the agent"""
         # its a simple distance ceh, if its within the agent's size
         return math.sqrt((x - agent.x)**2 + (y - agent.y)**2) < agent.size
+
+    def process_ray_data(self, ray_intersections):
+        """
+        Process ray-casting results into normalized inputs for the neural network.
+        Each ray contributes two values:
+        1. Normalized distance (scaled to [0, 1]).
+        2. Object type (-1 for predator, 1 for prey, 0 for none).
+        """
+        inputs = []
+        for ray in ray_intersections:
+            if ray[0][1]: # if object detected
+                distance = ray[0][0] / self.range # normalise distance
+                obj_type = 1 if ray[0][1].type == "prey" else -1
+            else:
+                distance = 1.0
+                obj_type = 0
+
+            # append details
+            inputs.append(distance)
+            inputs.append(obj_type)
+
+        return np.array(inputs)
+
     
     def draw_rays(self, screen):
         """Visualize rays cast by the agent for debugging."""
