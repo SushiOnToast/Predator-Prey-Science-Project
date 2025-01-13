@@ -1,13 +1,11 @@
 import random
 import math
 import pygame
-from constants import * 
-from neural_network import NeuralNetwork 
-import numpy as np
+from constants import *  # Assuming constants like ENERGY, PREDATOR_FOV, PREY_FOV, etc., are defined here
 
 # Define Agent Class
 class Agent:
-    def __init__(self, x, y, type_):
+    def __init__(self, x, y, type_, input_size, hidden_size, output_size):
         self.x = x
         self.y = y
         self.direction = random.uniform(0, 2 * math.pi)  # Random initial direction
@@ -15,7 +13,7 @@ class Agent:
         self.energy = ENERGY  # Starting energy
         self.type = type_  # Predator or Prey
         self.size = 10
-        self.energy_depletion_rate = 0.1 
+        self.energy_depletion_rate = 0.1
         self.is_alive = True
         self.is_stationary = False  # Track if prey is stationary to regain energy
         self.is_recovering = False  # Track if prey is recovering energy
@@ -23,31 +21,34 @@ class Agent:
         self.fov_angle = PREDATOR_FOV if self.type == "predator" else PREY_FOV
         self.num_rays = 10
         self.range = 200 if self.type == "predator" else 50
-        self.digestion_cooldown = 0 # digestion cooldown for predators to ensure that they dont gain energy while its active, to prevent overaccumulation of energy
+        self.digestion_cooldown = 0 # digestion cooldown for predators
+        
+        self.reproduction_threshold = 50 if type_ == "prey" else 10  # Thresholds for reproduction
+        self.time_survived = 0  # Track survival time for prey
+        self.prey_eaten = 0  # Track number of prey eaten by predators
 
-        self.neural_network = NeuralNetwork(
-            input_size=2*self.num_rays, # since we need distance + object type for each ray
-            hidden_size=10, 
-            output_size=2, # angular veocity and speed
-        )
+        # Neural Network for decision making
+        self.nn = NeuralNetwork(input_size, hidden_size, output_size)
 
     def move(self, screen, other_agents):
-        """Move the agent based on its direction, speed, and neural network-driven behavior."""
+        """Move the agent based on its direction, speed, and neural network output."""
         if self.is_alive:
-            # Neural network-driven movement
-            ray_intersections = self.cast_rays(screen, other_agents)
-            inputs = self.process_ray_data(ray_intersections)  # Process ray data for NN inputs
-            outputs = self.neural_network.forward(inputs)  # Neural network outputs
+            self.time_survived += 1
 
-            angular_velocity = outputs[0] * MAX_ANGULAR_VELOCITY  # Scale angular velocity
-            speed_modifier = outputs[1]  # Speed output directly
-            
-            # Update direction and speed based on NN outputs
-            self.direction += angular_velocity
-            self.speed = max(0, min(self.speed + speed_modifier, MAX_SPEED))  # Clamp speed
-            
-            # Movement logic
             if self.energy > 0 and not self.is_recovering:  # Only move if not recovering
+                # Get input from the environment (distances from rays)
+                ray_inputs = self.cast_rays(screen, other_agents)
+                ray_inputs = np.array(ray_inputs).flatten()  # Flatten the list into a single array for input
+
+                # Perform forward pass through the neural network
+                nn_output = self.nn.forward(ray_inputs)
+
+                # Extract the output values (direction and speed)
+                # Assuming the network's output has two values: speed and direction change
+                self.speed = np.clip(nn_output[0] * 10, 0, 10)  # Speed is between 0 and 10
+                self.direction += nn_output[1] * math.pi  # Direction change is scaled by pi
+
+                # Move the agent based on the neural network output
                 self.x += self.speed * math.cos(self.direction)
                 self.y += self.speed * math.sin(self.direction)
 
@@ -82,30 +83,28 @@ class Agent:
 
             # Predator eating logic using FOV and ray-casting
             if self.type == "predator":
-                for ray in ray_intersections:
-                    if not ray:  # Skip rays with no intersections
-                        continue
-
-                    # Sort detected agents by distance (closest first)
-                    ray.sort(key=lambda intersection: intersection[0])
-                    for distance, agent in ray:
-                        if agent.type == "prey" and agent.is_alive and distance <= self.size + agent.size:
+                for agent in other_agents:
+                    if agent.type == "prey" and agent.is_alive:
+                        distance = math.sqrt((self.x - agent.x)**2 + (self.y - agent.y)**2)
+                        if distance <= self.size + agent.size:
                             self.eat_prey(agent)
-                            break  # Stop checking this ray once prey is eaten
+                            break  # Stop checking this agent once prey is eaten
+
+            # Reproduction logic (same as before)
 
     def cast_rays(self, screen, other_agents):
-        """cast rays in the agent's FOV and return the distances to the closest agent"""
+        """Cast rays in the agent's FOV and return the distances to the closest agent."""
         ray_intersections = []
-        step_angle = self.fov_angle / max(1, (self.num_rays - 1)) # the angle between each of the rays
+        step_angle = self.fov_angle / max(1, (self.num_rays - 1))  # the angle between each of the rays
 
         for i in range(self.num_rays):
-            angle_offset = (i - (self.num_rays // 2)) * math.radians(step_angle) # distrubute rays within the FOV
+            angle_offset = (i - (self.num_rays // 2)) * math.radians(step_angle)  # Distribute rays within the FOV
             ray_direction = self.direction + angle_offset
             intersections = self._cast_ray(ray_direction, screen, other_agents)
             ray_intersections.append(intersections)
 
         return ray_intersections
-    
+
     def _cast_ray(self, angle, screen, other_agents):
         """Cast a single ray and return all intersections as (distance, object) tuples."""
         dx = math.cos(angle)
@@ -131,53 +130,9 @@ class Agent:
         else:
             return [(self.range, None)]  # No intersection within range
 
-    
     def _check_collision(self, x, y, agent):
-        """checs if the point x, y collides with the agent"""
-        # its a simple distance ceh, if its within the agent's size
+        """Check if the point x, y collides with the agent."""
         return math.sqrt((x - agent.x)**2 + (y - agent.y)**2) < agent.size
-
-    def process_ray_data(self, ray_intersections):
-        """
-        Process ray-casting results into normalized inputs for the neural network.
-        Each ray contributes two values:
-        1. Normalized distance (scaled to [0, 1]).
-        2. Object type (-1 for predator, 1 for prey, 0 for none).
-        """
-        inputs = []
-        for ray in ray_intersections:
-            if ray[0][1]: # if object detected
-                distance = ray[0][0] / self.range # normalise distance
-                obj_type = 1 if ray[0][1].type == "prey" else -1
-            else:
-                distance = 1.0
-                obj_type = 0
-
-            # append details
-            inputs.append(distance)
-            inputs.append(obj_type)
-
-        return np.array(inputs)
-
-    
-    def draw_rays(self, screen):
-        """Visualize rays cast by the agent for debugging."""
-        step_angle = self.fov_angle / (self.num_rays - 1)
-        for i in range(self.num_rays):
-            angle_offset = (i - (self.num_rays // 2)) * math.radians(step_angle)
-            ray_direction = self.direction + angle_offset
-            end_x = self.x + self.range * math.cos(ray_direction)
-            end_y = self.y + self.range * math.sin(ray_direction)
-            pygame.draw.line(screen, "gray", (self.x, self.y), (end_x, end_y), 1)
-
-
-    def draw(self, screen):
-        """Draw the agent on the screen."""
-        color = RED if self.type == "predator" else GREEN
-        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)
-        if self.type == "predator":
-            self.draw_rays(screen)
-
 
     def manage_recovery(self):
         """Prey regains energy if they are stationary and recovering."""
@@ -193,6 +148,9 @@ class Agent:
             self.energy += 20
             self.digestion_cooldown = DIGESTION_COOLDOWN_TIME
             prey.is_alive = False
-
-
-        
+            self.prey_eaten += 1  # Increase prey eaten counter
+            
+    def draw(self, screen):
+        """Draw the agent on the screen."""
+        color = RED if self.type == "predator" else GREEN
+        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)

@@ -35,6 +35,7 @@ def run_simulation():
 
         # Remove dead agents
         agents = [agent for agent in agents if agent.is_alive]
+        new_agents = []
         tracked_prey = None
         for agent in agents:
             if agent.type == "predator":
@@ -45,14 +46,19 @@ def run_simulation():
         for agent in agents:
             agent.move(screen, agents)  # Move the agent (with recovery handling within the move method)
             agent.draw(screen)
-
-        debug_text(screen, str(tracked_prey.is_recovering))
-        debug_text(screen, str(tracked_prey.energy), 0, 15)
-        debug_text(screen, str(tracked_prey.is_stationary), 0, 30)
+            # Handle reproduction
+            offspring = agent.reproduce()
+            if offspring:
+                new_agents.append(offspring)
+        
+        agents.extend(new_agents)
 
         # Track the prey being followed
-        if tracked_prey.is_alive:
-            pygame.draw.rect(screen, BLACK, (tracked_prey.x - 10, tracked_prey.y - 10, 20, 20), 2)  # Highlight the tracked prey
+        # if tracked_prey.is_alive:
+        #     pygame.draw.rect(screen, BLACK, (tracked_prey.x - 10, tracked_prey.y - 10, 20, 20), 2)  # Highlight the tracked prey
+        #     debug_text(screen, str(tracked_prey.is_recovering))
+        #     debug_text(screen, str(tracked_prey.energy), 0, 15)
+        #     debug_text(screen, str(tracked_prey.is_stationary), 0, 30)
 
         pygame.display.flip()
         clock.tick(FPS)
