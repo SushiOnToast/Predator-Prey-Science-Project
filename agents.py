@@ -54,12 +54,22 @@ class RayCaster:
             if not (0 <= x < screen.get_width() and 0 <= y < screen.get_height()):
                 return t  # Return distance to the boundary
 
-            # Check for collisions with nearby agents
+            # Create the ray's rectangle at (x, y) with a small width for detection purposes
+            ray_rect = pygame.Rect(x, y, 2, 2)  # Small rectangle to represent the ray
+
             for other_agent in nearby_agents:
-                if other_agent != self.agent and other_agent.is_alive and self._check_collision(x, y, other_agent):
-                    return t  # Return distance to the agent
+                if other_agent != self.agent and other_agent.is_alive:
+                    # Check for collision using colliderect
+                    agent_rect = pygame.Rect(other_agent.x - other_agent.size, 
+                                            other_agent.y - other_agent.size, 
+                                            other_agent.size * 2, 
+                                            other_agent.size * 2)
+
+                    if ray_rect.colliderect(agent_rect):
+                        return t  # Return distance when collision occurs
 
         return self.max_range  # No intersection within range
+
 
     def _check_collision(self, x, y, other_agent):
         """
@@ -87,7 +97,7 @@ class Agent:
 
         self.fov_angle = PREDATOR_FOV if self.type == "predator" else PREY_FOV
         self.num_rays = NUM_RAYS
-        self.range = 200 if self.type == "predator" else 50
+        self.range = 200 if self.type == "predator" else 100
         self.digestion_cooldown = 0
 
         self.reproduction_threshold = 50 if type_ == "prey" else 10
@@ -200,10 +210,15 @@ class Agent:
 
     def eat_prey(self, prey):
         if self.digestion_cooldown == 0:
-            prey.is_alive = False
-            self.energy += 20
-            self.digestion_cooldown = DIGESTION_COOLDOWN_TIME
-            self.prey_eaten += 1
+            predator_rect = pygame.Rect(self.x - self.size, self.y - self.size, self.size * 2, self.size * 2)
+            prey_rect = pygame.Rect(prey.x - prey.size, prey.y - prey.size, prey.size * 2, prey.size * 2)
+
+            if predator_rect.colliderect(prey_rect):
+                prey.is_alive = False
+                self.energy += 20
+                self.digestion_cooldown = DIGESTION_COOLDOWN_TIME
+                self.prey_eaten += 1
+
 
     def calculate_reward(self):
         if self.type == "predator" and self.energy > ENERGY:

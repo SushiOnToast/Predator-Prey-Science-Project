@@ -78,7 +78,7 @@ class Simulation:
 
     def load_agents(self):
         """Initialize agents (predators and prey)."""
-        self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), "prey")]
+        self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(NUM_AGENTS)]
 
     def remove_dead_agents(self):
         """Remove dead agents from the simulation."""

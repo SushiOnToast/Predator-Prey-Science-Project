@@ -11,7 +11,7 @@ YELLOW = (255, 255, 0)
 
 # Simulation parameters
 FPS = 60
-NUM_AGENTS = 5
+NUM_AGENTS = 20
 DIGESTION_COOLDOWN_TIME = 50
 ENERGY = 100
 MAX_ANGULAR_VELOCITY = 0.2
@@ -21,8 +21,8 @@ PREDATOR_FOV = 60
 PREY_FOV = 270
 NUM_RAYS = 10
 
-PREY_MIN_SURVIVAL_TIME = 25
-PREDATOR_PREY_EATEN_THRESHOLD = 10
+PREY_MIN_SURVIVAL_TIME = 200
+PREDATOR_PREY_EATEN_THRESHOLD = 3
 INPUT_SIZE = NUM_RAYS  # Number of rays (input features)
 HIDDEN_SIZE = 8  # Number of neurons in the hidden layer (can experiment with this)
 OUTPUT_SIZE = 2  # Speed and direction (outputs)
