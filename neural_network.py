@@ -31,6 +31,7 @@ class NeuralNetwork:
         speed = np.clip(sigmoid(self.output[0]) * MAX_SPEED, 0, MAX_SPEED)
         angular_velocity = np.clip(tanh(self.output[1]) * MAX_ANGULAR_VELOCITY, -MAX_ANGULAR_VELOCITY, MAX_ANGULAR_VELOCITY)
 
+        # print(speed, angular_velocity)
         return speed, angular_velocity
 
     def backward(self, input_data, td_error, action_taken):
