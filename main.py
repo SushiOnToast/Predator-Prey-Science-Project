@@ -29,6 +29,8 @@ class Simulation:
     def load_agents(self):
         """Initialize agents (predators and prey)"""
         self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(NUM_AGENTS)]
+        # self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), "prey"), Agent(random.randint(50, 750), random.randint(50, 550), "predator")]
+        # self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), "prey")]
 
     def remove_dead_agents(self):
         """Remove dead agents from the simulation"""
@@ -57,6 +59,10 @@ class Simulation:
         """Main loop to run the simulation"""
         while self.running:
             self.screen.fill(WHITE)
+
+            debug_text(self.screen, str(self.agents[0].speed))
+            debug_text(self.screen, str(self.agents[0].direction), 0, 20)
+
             self.handle_events()
             self.remove_dead_agents()
             self.handle_movement()

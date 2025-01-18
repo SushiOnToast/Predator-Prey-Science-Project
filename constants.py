@@ -21,8 +21,10 @@ PREDATOR_FOV = 60
 PREY_FOV = 270
 NUM_RAYS = 10
 
-PREY_MIN_SURVIVAL_TIME = 1000
+PREY_MIN_SURVIVAL_TIME = 100000
 PREDATOR_PREY_EATEN_THRESHOLD = 10
 INPUT_SIZE = NUM_RAYS  # Number of rays (input features)
 HIDDEN_SIZE = 8  # Number of neurons in the hidden layer (can experiment with this)
 OUTPUT_SIZE = 2  # Speed and direction (outputs)
+
+LEARNING_RATE = 0.001
