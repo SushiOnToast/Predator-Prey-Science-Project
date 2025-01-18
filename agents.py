@@ -5,8 +5,6 @@ from constants import *  # Assuming constants like ENERGY, PREDATOR_FOV, PREY_FO
 from neural_network import NeuralNetwork
 import numpy as np
 
-import math
-
 class RayCaster:
     def __init__(self, agent, num_rays, fov_angle, max_range):
         """
@@ -39,7 +37,6 @@ class RayCaster:
             ray_direction = self.agent.direction + angle_offset
             distance = self._cast_single_ray(ray_direction, screen, other_agents)
             ray_distances.append(distance)
-
         return ray_distances
 
     def _cast_single_ray(self, angle, screen, nearby_agents):
@@ -70,17 +67,6 @@ class RayCaster:
 
         return self.max_range  # No intersection within range
 
-
-    def _check_collision(self, x, y, other_agent):
-        """
-        Check if the point (x, y) collides with an agent.
-        :param x: x-coordinate of the point.
-        :param y: y-coordinate of the point.
-        :param other_agent: Another agent in the environment.
-        :return: True if the point collides with the agent, False otherwise.
-        """
-        return math.sqrt((x - other_agent.x)**2 + (y - other_agent.y)**2) < other_agent.size
-
 class Agent:
     def __init__(self, x, y, type_, input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE, output_size=OUTPUT_SIZE):
         self.x = x
@@ -107,54 +93,20 @@ class Agent:
         self.nn = NeuralNetwork(input_size, hidden_size, output_size, 2)
         self.ray_caster = RayCaster(self, self.num_rays, self.fov_angle, self.range)
 
-        self.epsilon = 0.1
-        self.gamma = 0.99
-        self.previous_state = None
-        self.previous_action = None
-        self.previous_reward = 0
-
-    def select_action(self, state):
-        q_values = self.nn.forward(state)
-        angular_velocity_action = np.argmax(q_values[:len(q_values)//2])
-        speed_action = np.argmax(q_values[len(q_values)//2:])
-        return angular_velocity_action, speed_action
-
-    def learn(self, current_state, reward):
-        if self.previous_state is not None:
-            current_q_values = self.nn.forward(self.previous_state)
-            next_q_values = self.nn.forward(current_state)
-
-            angular_velocity_target = reward + self.gamma * np.max(next_q_values[:len(next_q_values)//2])
-            speed_target = reward + self.gamma * np.max(next_q_values[len(next_q_values)//2:])
-
-            angular_velocity_td_error = angular_velocity_target - current_q_values[self.previous_action[0]]
-            speed_td_error = speed_target - current_q_values[self.previous_action[1]]
-
-
-            # Backpropagation
-            self.nn.backward(self.previous_state, angular_velocity_td_error, self.previous_action[0])
-            self.nn.backward(self.previous_state, speed_td_error, self.previous_action[1])
-
-
-        # Update the previous state, action, and reward
-        self.previous_state = current_state
-        self.previous_action = self.select_action(current_state)
-        self.previous_reward = reward
-
-
     def move(self, screen, other_agents):
         if self.is_alive:
             self.time_survived += 1
-            state = np.array(self.ray_caster.cast_rays(screen, other_agents))
+            state = np.array(self.ray_caster.cast_rays(screen, other_agents))/self.range
+            
 
-            if random.uniform(0, 1) < self.epsilon:
-                delta_angular_velocity, delta_speed = np.random.uniform(-1, 1, 2)
-            else:
-                delta_angular_velocity, delta_speed = self.select_action(state)
+            # No reinforcement learning or Q-learning here, just neural network outputs
+            output = self.nn.forward(state)
+            print(output)
+            delta_angular_velocity, delta_speed = output[0], output[1]
 
             if self.energy > 0 and not self.is_recovering:
-                self.direction += delta_angular_velocity /2
-                self.speed = self.speed + delta_speed / 5
+                self.direction += delta_angular_velocity / 50
+                self.speed = self.speed + delta_speed / 50
 
                 self.x += self.speed * math.cos(self.direction)
                 self.y += self.speed * math.sin(self.direction)
@@ -183,9 +135,6 @@ class Agent:
                         if distance <= self.size + agent.size:
                             self.eat_prey(agent)
                             break
-
-            reward = self.calculate_reward()
-            self.learn(state, reward)
 
     def reproduce(self):
         if self.type == "prey" and self.time_survived >= PREY_MIN_SURVIVAL_TIME and self.energy >= self.reproduction_threshold:
@@ -219,13 +168,53 @@ class Agent:
                 self.digestion_cooldown = DIGESTION_COOLDOWN_TIME
                 self.prey_eaten += 1
 
+    def calculate_reward(self, nearby_agents):
+        reward = 0
+        
+        if self.type == "predator":
+            # Reward for catching prey
+            reward += 10 * self.prey_eaten
+            
+            # Small reward for energy efficiency
+            if self.energy > 50:
+                reward += 0.5
+            
+            # Penalty for idling or running out of energy
+            if self.energy <= 0:
+                reward -= 10
+            elif self.speed < 0.1:
+                reward -= 0.1
+            
+            # Exploration reward
+            for agent in nearby_agents:
+                if agent.type == "prey":
+                    distance = math.sqrt((self.x - agent.x) ** 2 + (self.y - agent.y) ** 2)
+                    if distance <= self.range:
+                        reward += 0.1
 
-    def calculate_reward(self):
-        if self.type == "predator" and self.energy > ENERGY:
-            return 10
-        elif self.type == "prey" and self.is_alive:
-            return 1 + (self.time_survived * 0.1)
-        return -10
+        elif self.type == "prey":
+            # Reward for surviving
+            reward += 1
+
+            # Bonus for avoiding predators
+            for agent in nearby_agents:
+                if agent.type == "predator":
+                    distance = math.sqrt((self.x - agent.x) ** 2 + (self.y - agent.y) ** 2)
+                    if distance <= self.size + agent.size + 20:
+                        reward -= 5  # Close call
+                    else:
+                        reward += 0.1  # Safe distance
+
+            # Energy recovery bonus
+            if self.is_stationary and not self.is_recovering:
+                reward += 0.2
+            
+            # Penalty for getting caught
+            if not self.is_alive:
+                reward -= 10
+        
+        return reward
+
 
     def draw(self, screen):
         color = RED if self.type == "predator" else GREEN
