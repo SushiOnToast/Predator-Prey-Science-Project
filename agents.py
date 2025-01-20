@@ -92,10 +92,19 @@ class Agent:
     def move(self, screen, other_agents):
         if self.is_alive:
             self.time_survived += 1
-            state = np.array(self.ray_caster.cast_rays(screen, other_agents))/self.range
+
+           # Get ray distances and their corresponding agent types
+            ray_data = self.ray_caster.cast_rays(screen, other_agents)
+
+            # Prepare the input array for the neural network
+            state = []
+            for distance, agent_type in ray_data:
+                # Normalize the distance and encode agent type
+                state.append(distance / self.range)  # Normalize distance
+                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))  # Encode type
 
             # Neural network decision-making
-            output = self.nn.activate(state.flatten())
+            output = self.nn.activate(np.array(state))
             delta_angular_velocity, delta_speed = output[0], output[1]
 
             # Limit the change in angular velocity and speed for smoother behavior
