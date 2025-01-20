@@ -148,24 +148,6 @@ class Simulation:
         print(f"Agent with genome_id {genome_id} not found.")
         return None
 
-    def crossover(self, parents, agent_type):
-        """Perform crossover to generate new offspring using NEAT crossover."""
-        offspring = []
-        for _ in range(len(self.agents) - len(parents)):
-            parent1, parent2 = random.sample(parents, 2)
-            if parent1.type != parent2.type:
-                continue  # Skip crossover between predator and prey
-            child_nn = parent1.nn.crossover(parent2.nn)
-            parent = random.choice([parent1, parent2])
-            offset_x = random.randint(-15, 15)
-            offset_y = random.randint(-15, 15)
-            child_x = max(0, min(parent.x + offset_x, WIDTH))
-            child_y = max(0, min(parent.y + offset_y, HEIGHT))
-            child_type = parent.type
-            child = Agent(child_x, child_y, child_type, nn=child_nn)
-            offspring.append(child)
-        return offspring
-
     def mutate(self, offspring):
         """Apply mutations to the offspring's neural networks."""
         for child in offspring:
@@ -219,6 +201,23 @@ class Simulation:
                     message = "Predators extinct!" if not predators_exist else "Prey extinct!"
                     debug_text(self.screen, message, WIDTH // 2 - 50, HEIGHT // 2, 20)
                     break
+                
+                # Extract only the genome objects as lists
+                predator_genomes = [genome for _, genome in self.predator_population.population.items()]
+                prey_genomes = [genome for _, genome in self.prey_population.population.items()]
+
+                # Gather fitness lists (if needed)
+                predator_fitness = [genome.fitness for genome in predator_genomes]
+                prey_fitness = [genome.fitness for genome in prey_genomes]
+
+                # Pass genome lists directly to log_fitness
+                self.fitness_tracker.log_fitness(
+                    generation=self.generation,
+                    predator_fitness=predator_fitness,
+                    prey_fitness=prey_fitness,
+                    predators=[agent for agent in self.agents if agent.type == "predator"],
+                    preys=[agent for agent in self.agents if agent.type == "prey"]
+                )
 
                 self.steps_since_last_generation = 0
             else:

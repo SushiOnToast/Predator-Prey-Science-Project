@@ -2,7 +2,6 @@ import random
 import math
 import pygame
 from constants import *  # Assuming constants like ENERGY, PREDATOR_FOV, PREY_FOV, etc., are defined here
-from neural_network import NeuralNetwork
 import numpy as np
 import neat
 
@@ -89,49 +88,45 @@ class Agent:
         self.fitness = 0
         self.genome_id = genome_id
 
+        # Additional metrics
+        self.distance_traveled = 0  # Track the distance the agent has traveled
+
     def move(self, screen, other_agents):
         if self.is_alive:
             self.time_survived += 1
 
-           # Get ray distances and their corresponding agent types
+            # Track previous position to calculate distance traveled
+            previous_x, previous_y = self.x, self.y
+
+            # Get ray distances and their corresponding agent types
             ray_data = self.ray_caster.cast_rays(screen, other_agents)
 
             # Prepare the input array for the neural network
             state = []
             for distance, agent_type in ray_data:
-                # Normalize the distance and encode agent type
-                state.append(distance / self.range)  # Normalize distance
-                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))  # Encode type
+                state.append(distance / self.range)
+                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))
 
             # Neural network decision-making
             output = self.nn.activate(np.array(state))
             delta_angular_velocity, delta_speed = output[0], output[1]
 
-            # Limit the change in angular velocity and speed for smoother behavior
-            angular_velocity_limit = 1  # Max change in angular velocity per step
-            speed_limit = 0.5  # Max change in speed per step
-
-            # Apply scaling to prevent sharp turns or rapid acceleration
+            # Apply movement limits and update direction/speed
+            angular_velocity_limit = 1
+            speed_limit = 0.5
             delta_angular_velocity = max(-angular_velocity_limit, min(delta_angular_velocity, angular_velocity_limit))
             delta_speed = max(-speed_limit, min(delta_speed, speed_limit))
-
-            # Adjust the agent's direction and speed
             self.direction += delta_angular_velocity
-            self.speed += delta_speed  # Accumulate speed change
-
-            # Clamp speed to a maximum value to prevent runaway behavior
-            max_speed = 3  # Set a maximum speed
+            self.speed += delta_speed
+            max_speed = 3
             self.speed = max(0, min(self.speed, max_speed))
 
-            # Move the agent
             self.x += self.speed * math.cos(self.direction)
             self.y += self.speed * math.sin(self.direction)
 
-            # Ensure the agent stays within screen bounds
             self.x = max(0, min(self.x, screen.get_width() - self.size))
             self.y = max(0, min(self.y, screen.get_height() - self.size))
 
-            # Update energy levels
             self.energy -= self.energy_depletion_rate
             if self.energy <= 0:
                 if self.type == "predator":
@@ -143,7 +138,6 @@ class Agent:
             elif self.is_recovering:
                 self.manage_recovery()
 
-            # Predator-specific behavior for eating prey
             if self.digestion_cooldown > 0:
                 self.digestion_cooldown -= 1
 
@@ -154,13 +148,6 @@ class Agent:
                         if distance <= self.size + agent.size:
                             self.eat_prey(agent)
                             break
-
-                    for agent in other_agents:
-                        if agent.type == "prey" and agent.is_alive:
-                            distance = math.sqrt((self.x - agent.x) ** 2 + (self.y - agent.y) ** 2)
-                            if distance <= self.size + agent.size:
-                                self.eat_prey(agent)
-                                break
 
     def eat_prey(self, prey):
         """Handle the predation and energy increase for predators."""
