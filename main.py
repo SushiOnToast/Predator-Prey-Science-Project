@@ -98,17 +98,36 @@ class Simulation:
             for agent in self.agents:
                 agent.update_fitness()
 
-    def rank_based_selection(self):
-        """Select parents using rank-based selection."""
-        self.agents.sort(key=lambda agent: agent.fitness, reverse=True)
-        total_ranks = sum(range(1, len(self.agents) + 1))
-        probabilities = [(len(self.agents) - rank) / total_ranks for rank in range(len(self.agents))]
+    def combined_selection(self):
+        """Select parents using a combination of tournament and roulette wheel selection."""
         num_parents = len(self.agents) // 2
-        parents = random.choices(self.agents, weights=probabilities, k=num_parents)
-        parents = list(set(parents))
-        parents.extend(self.agents[:2])  # Add top 2 agents for elitism
-        parents = parents[:num_parents]
-        return parents
+
+        # Split parent selection between tournament and roulette
+        num_tournament = int(num_parents * 0.7)  # 70% tournament selection
+        num_roulette = num_parents - num_tournament  # Remaining for roulette selection
+
+        # Tournament Selection
+        tournament_parents = []
+        tournament_size = 3  # Configurable tournament size
+        for _ in range(num_tournament):
+            tournament = random.sample(self.agents, tournament_size)
+            winner = max(tournament, key=lambda agent: agent.fitness)
+            tournament_parents.append(winner)
+
+        # Roulette Wheel Selection
+        total_fitness = sum(agent.fitness for agent in self.agents)
+        probabilities = [agent.fitness / total_fitness for agent in self.agents]
+        roulette_parents = random.choices(self.agents, weights=probabilities, k=num_roulette)
+
+        # Combine selected parents and ensure no duplicates (optional)
+        parents = list(set(tournament_parents + roulette_parents))
+
+        # Elitism: Add top agents to ensure the best genes are always preserved
+        elitism_count = 2  # Adjust as needed
+        parents.extend(sorted(self.agents, key=lambda agent: agent.fitness, reverse=True)[:elitism_count])
+
+        # Ensure final number of parents matches the requirement
+        return parents[:num_parents]
 
     def crossover(self, parents):
         """Perform crossover to generate new offspring."""
@@ -159,7 +178,7 @@ class Simulation:
                 self.generation += 1
                 self.steps_since_last_generation = 0
                 self.evaluate_fitness()
-                parents = self.rank_based_selection()
+                parents = self.combined_selection()
                 offspring = self.crossover(parents)
                 self.mutate(offspring)
                 self.agents = parents + offspring
@@ -176,7 +195,7 @@ class Simulation:
             self.remove_dead_agents()
             self.update_display()
             self.clock.tick(FPS)
-            
+
         self.fitness_tracker.plot_fitness()
 
     def handle_events(self):
