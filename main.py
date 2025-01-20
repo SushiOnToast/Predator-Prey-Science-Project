@@ -183,6 +183,17 @@ class Simulation:
                 self.mutate(offspring)
                 self.agents = parents + offspring
 
+                # Check for species extinction
+                predators_exist = any(agent.type == "predator" for agent in self.agents)
+                prey_exist = any(agent.type == "prey" for agent in self.agents)
+
+                if not predators_exist or not prey_exist:
+                    message = "Predators extinct!" if not predators_exist else "Prey extinct!"
+                    debug_text(self.screen, message, WIDTH // 2 - 100, HEIGHT // 2 - 20, 30)
+                    pygame.display.flip()
+                    pygame.time.delay(3000)  # Show the message for 3 seconds
+                    break
+
                 # log fitness at end of generation
                 predator_fitness = [agent.fitness for agent in self.agents if agent.type == "predator"]
                 prey_fitness = [agent.fitness for agent in self.agents if agent.type == "prey"]
