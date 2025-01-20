@@ -4,6 +4,7 @@ import math
 from constants import *
 from agents import Agent
 from debug import debug_text
+from fitness_tracker import FitnessTracker
 
 
 class SpatialGrid:
@@ -48,12 +49,6 @@ class SpatialGrid:
             pygame.draw.line(screen, (200, 200, 200), (0, y), (screen.get_width(), y))  # Horizontal lines
 
 
-import pygame
-import random
-from constants import *
-from agents import Agent
-from debug import debug_text
-
 class Simulation:
     def __init__(self):
         # Initialize pygame
@@ -73,6 +68,8 @@ class Simulation:
         self.spatial_grid = SpatialGrid(WIDTH, HEIGHT, self.cell_size)
         self.generation = 0
         self.steps_since_last_generation = 0
+
+        self.fitness_tracker = FitnessTracker()
 
         # Load agents
         self.load_agents()
@@ -167,6 +164,11 @@ class Simulation:
                 self.mutate(offspring)
                 self.agents = parents + offspring
 
+                # log fitness at end of generation
+                predator_fitness = [agent.fitness for agent in self.agents if agent.type == "predator"]
+                prey_fitness = [agent.fitness for agent in self.agents if agent.type == "prey"]
+                self.fitness_tracker.log_fitness(self.generation, predator_fitness, prey_fitness)
+
             debug_text(self.screen, f"Generation: {self.generation}", 0, 40)
             self.steps_since_last_generation += 1
             self.handle_events()
@@ -174,6 +176,8 @@ class Simulation:
             self.remove_dead_agents()
             self.update_display()
             self.clock.tick(FPS)
+            
+        self.fitness_tracker.plot_fitness()
 
     def handle_events(self):
         """Handle user inputs and events."""

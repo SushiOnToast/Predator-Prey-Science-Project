@@ -1,2 +1,4 @@
 pygame
-deap
+numpy
+matplotlib
+pandas
