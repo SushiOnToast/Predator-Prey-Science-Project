@@ -67,8 +67,9 @@ class RayCaster:
 
         return self.max_range  # No intersection within range
 
+
 class Agent:
-    def __init__(self, x, y, type_, input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE, output_size=OUTPUT_SIZE):
+    def __init__(self, x, y, type_, input_size=INPUT_SIZE, hidden_size=HIDDEN_SIZE, output_size=OUTPUT_SIZE, nn=None):
         self.x = x
         self.y = y
         self.direction = random.uniform(0, 2 * math.pi)
@@ -90,18 +91,18 @@ class Agent:
         self.time_survived = 0
         self.prey_eaten = 0
 
-        self.nn = NeuralNetwork(input_size, hidden_size, output_size, 2)
+        self.nn = nn if nn is not None else NeuralNetwork(input_size, hidden_size, output_size)
         self.ray_caster = RayCaster(self, self.num_rays, self.fov_angle, self.range)
+
+        self.fitness = 0
 
     def move(self, screen, other_agents):
         if self.is_alive:
             self.time_survived += 1
             state = np.array(self.ray_caster.cast_rays(screen, other_agents))/self.range
-            
 
-            # No reinforcement learning or Q-learning here, just neural network outputs
+            # Neural network decision-making
             output = self.nn.forward(state)
-            print(output)
             delta_angular_velocity, delta_speed = output[0], output[1]
 
             if self.energy > 0 and not self.is_recovering:
@@ -111,8 +112,8 @@ class Agent:
                 self.x += self.speed * math.cos(self.direction)
                 self.y += self.speed * math.sin(self.direction)
 
-                self.x = np.clip(self.x, 0, screen.get_width() - self.size)
-                self.y = np.clip(self.y, 0, screen.get_height() - self.size)
+                self.x = max(0, min(self.x, screen.get_width() - self.size))
+                self.y = max(0, min(self.y, screen.get_height() - self.size))
 
                 self.energy -= self.energy_depletion_rate
                 if self.energy <= 0:
@@ -136,85 +137,69 @@ class Agent:
                             self.eat_prey(agent)
                             break
 
-    def reproduce(self):
-        if self.type == "prey" and self.time_survived >= PREY_MIN_SURVIVAL_TIME and self.energy >= self.reproduction_threshold:
-            offset_x, offset_y = random.uniform(-20, 20), random.uniform(-20, 20)
-            offspring = Agent(self.x + offset_x, self.y + offset_y, self.type)
-            self.energy /= 2
-            self.time_survived = 0
-            return offspring
-        elif self.type == "predator" and self.prey_eaten >= PREDATOR_PREY_EATEN_THRESHOLD:
-            offset_x, offset_y = random.uniform(-20, 20), random.uniform(-20, 20)
-            offspring = Agent(self.x + offset_x, self.y + offset_y, self.type)
-            self.prey_eaten = 0
-            return offspring
-        return None
+    def eat_prey(self, prey):
+        """Handle the predation and energy increase for predators."""
+        if prey.is_alive:
+            prey.is_alive = False
+            self.energy += prey.energy  # Predator gains energy from the prey
+            self.prey_eaten += 1
+            self.digestion_cooldown = 10  # Predator enters digestion cooldown
+
+    def reproduce(self, partner=None):
+        """Handle the reproduction process, based on fitness values."""
+        offspring = None
+
+        if self.type == "prey":
+            # Prey reproduce if their fitness value reaches a certain threshold
+            if self.fitness >= PREY_FITNESS_THRESHOLD:
+                offspring = self._reproduce_with_crossover(partner)
+        
+        elif self.type == "predator":
+            # Predators reproduce based on their fitness, which increases with prey eaten
+            if self.fitness >= PREDATOR_FITNESS_THRESHOLD:
+                offspring = self._reproduce_with_crossover(partner)
+
+        if offspring:
+            self.energy /= 2  # Split energy between parent and offspring
+            self.time_survived = 0  # Reset survival time after reproduction
+        return offspring
+
+    def _reproduce_with_crossover(self, partner):
+        """Handle crossover between two agents and produce an offspring."""
+        if partner is None:
+            return None  # No partner, no reproduction
+
+        # Perform crossover on the neural networks
+        offspring_nn = self.nn.crossover(partner.nn)
+        
+        # Optionally, mutate the offspring neural network
+        offspring_nn.mutate()
+
+        # Create the offspring agent
+        offset_x, offset_y = random.uniform(-20, 20), random.uniform(-20, 20)
+        offspring = Agent(self.x + offset_x, self.y + offset_y, self.type)
+        offspring.nn = offspring_nn  # Assign the new neural network to the offspring
+
+        return offspring
 
     def manage_recovery(self):
         if self.type == "prey" and self.is_recovering:
-            self.energy = min(ENERGY, self.energy + 0.1)
+            self.energy += 1  # Regenerate energy for prey when recovering
             if self.energy >= ENERGY:
                 self.is_recovering = False
                 self.is_stationary = False
+                self.energy = ENERGY  # Maximum energy
 
-    def eat_prey(self, prey):
-        if self.digestion_cooldown == 0:
-            predator_rect = pygame.Rect(self.x - self.size, self.y - self.size, self.size * 2, self.size * 2)
-            prey_rect = pygame.Rect(prey.x - prey.size, prey.y - prey.size, prey.size * 2, prey.size * 2)
-
-            if predator_rect.colliderect(prey_rect):
-                prey.is_alive = False
-                self.energy += 20
-                self.digestion_cooldown = DIGESTION_COOLDOWN_TIME
-                self.prey_eaten += 1
-
-    def calculate_reward(self, nearby_agents):
-        reward = 0
-        
+    def update_fitness(self):
+        """Update the fitness of the agent based on its actions."""
         if self.type == "predator":
-            # Reward for catching prey
-            reward += 10 * self.prey_eaten
-            
-            # Small reward for energy efficiency
-            if self.energy > 50:
-                reward += 0.5
-            
-            # Penalty for idling or running out of energy
-            if self.energy <= 0:
-                reward -= 10
-            elif self.speed < 0.1:
-                reward -= 0.1
-            
-            # Exploration reward
-            for agent in nearby_agents:
-                if agent.type == "prey":
-                    distance = math.sqrt((self.x - agent.x) ** 2 + (self.y - agent.y) ** 2)
-                    if distance <= self.range:
-                        reward += 0.1
-
+            # Predator's fitness increases with each prey eaten
+            self.fitness += self.prey_eaten
         elif self.type == "prey":
-            # Reward for surviving
-            reward += 1
-
-            # Bonus for avoiding predators
-            for agent in nearby_agents:
-                if agent.type == "predator":
-                    distance = math.sqrt((self.x - agent.x) ** 2 + (self.y - agent.y) ** 2)
-                    if distance <= self.size + agent.size + 20:
-                        reward -= 5  # Close call
-                    else:
-                        reward += 0.1  # Safe distance
-
-            # Energy recovery bonus
-            if self.is_stationary and not self.is_recovering:
-                reward += 0.2
-            
-            # Penalty for getting caught
-            if not self.is_alive:
-                reward -= 10
-        
-        return reward
-
+            # Prey's fitness increases with survival time and energy recovery
+            self.fitness += self.time_survived * 0.1  # Adjust multiplier as needed
+            if self.is_recovering:
+                self.fitness += 0.5  # Reward prey for energy recovery
 
     def draw(self, screen):
         color = RED if self.type == "predator" else GREEN

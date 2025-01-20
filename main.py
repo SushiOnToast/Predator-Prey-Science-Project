@@ -17,7 +17,7 @@ class SpatialGrid:
         """Clear all cells before recalculating positions."""
         for row in self.cells:
             for cell in row:
-                cell.clear()
+                cell[:] = []  # Clears the list of agents in the cell
 
     def add_agent(self, agent):
         """Add an agent to the grid based on its position."""
@@ -65,6 +65,8 @@ class Simulation:
         # Initialize spatial grid
         self.cell_size = 50  # Adjust based on agent density and environment size
         self.spatial_grid = SpatialGrid(WIDTH, HEIGHT, self.cell_size)
+        self.generation = 0
+        self.steps_since_last_generation = 0
 
         # Load agents
         self.load_agents()
@@ -80,22 +82,61 @@ class Simulation:
         """Initialize agents (predators and prey)."""
         self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(NUM_AGENTS)]
 
+    def evaluate_fitness(self):
+        """Evaluate the fitness of each agent less frequently."""
+        if self.steps_since_last_generation % 10 == 0:  # Evaluate fitness every 10 frames
+            for agent in self.agents:
+                agent.update_fitness()
+
+    def select_parents(self):
+        """Select the top half of the agents based on their fitness."""
+        self.agents.sort(key=lambda agent: agent.fitness, reverse=True)
+        parents = self.agents[:len(self.agents) // 2]
+        return parents
+
+    def crossover(self, parents):
+        """Perform crossover to generate new offspring."""
+        offspring = []
+        for _ in range(len(self.agents) - len(parents)):
+            parent1, parent2 = random.sample(parents, 2)
+            
+            # Create a child with combined neural network traits
+            child_nn = parent1.nn.crossover(parent2.nn)
+
+            # Place the offspring near one of the parents (randomly choose between parent1 and parent2)
+            parent = random.choice([parent1, parent2])
+            
+            # Add a small random offset to avoid exact overlap with parents
+            offset_x = random.randint(-self.cell_size, self.cell_size)
+            offset_y = random.randint(-self.cell_size, self.cell_size)
+            
+            # Place the child near the chosen parent
+            child_x = parent.x + offset_x
+            child_y = parent.y + offset_y
+
+            # Ensure that the offspring is still within the screen bounds
+            child_x = max(0, min(child_x, WIDTH))
+            child_y = max(0, min(child_y, HEIGHT))
+            child_type = parent.type
+
+            # Create the offspring agent at the chosen location
+            child = Agent(child_x, child_y, child_type, nn=child_nn)
+            offspring.append(child)
+        
+        return offspring
+
+    def mutate(self, offspring):
+        """Apply mutations to the offspring's neural networks."""
+        for child in offspring:
+            child.nn.mutate()
+
     def remove_dead_agents(self):
         """Remove dead agents from the simulation."""
         self.agents = [agent for agent in self.agents if agent.is_alive]
 
-    def handle_reproduction(self):
-        """Handle agent reproduction."""
-        new_agents = []
-        for agent in self.agents:
-            offspring = agent.reproduce()
-            if offspring:
-                new_agents.append(offspring)
-        self.agents.extend(new_agents)
-
     def handle_movement(self):
         """Move and draw agents on the screen."""
-        # Clear the spatial grid
+        # Clear the spatial grid only if agents have moved
         self.spatial_grid.clear()
 
         # Add agents to the grid
@@ -119,13 +160,29 @@ class Simulation:
 
             self.spatial_grid.draw(self.screen)
 
-            debug_text(self.screen, str(self.agents[0].speed))
-            debug_text(self.screen, str(self.agents[0].direction), 0, 20)
+            # Update the generation after a set number of steps
+            if self.steps_since_last_generation >= STEPS_PER_GENERATION:
+                self.generation += 1
+                self.steps_since_last_generation = 0  # Reset the counter
 
+                # Handle reproduction and evolution at the end of the generation
+                self.evaluate_fitness()  # Evaluate less frequently
+                parents = self.select_parents()
+                offspring = self.crossover(parents)
+                self.mutate(offspring)
+
+            debug_text(self.screen, f"Generation: {self.generation}", 0, 40)
+
+            # Increment the step counter each frame
+            self.steps_since_last_generation += 1
+
+            # Existing simulation logic...
             self.handle_events()
-            self.remove_dead_agents()
             self.handle_movement()
-            self.handle_reproduction()
+
+            # Remove dead agents (still happens every frame)
+            self.remove_dead_agents()
+
             self.update_display()
             self.clock.tick(FPS)
 
