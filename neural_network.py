@@ -24,16 +24,7 @@ class NeuralNetwork:
         self.bias_output = np.random.randn(output_size) * 0.01
 
     def forward(self, inputs):
-        """
-        Forward pass to compute the output actions (speed and angular velocity).
-
-        Parameters:
-        - inputs: The input state (e.g., ray distances).
-
-        Returns:
-        - speed: The computed speed (scaled and clipped).
-        - angular_velocity: The computed angular velocity (scaled and clipped).
-        """
+        """Forward pass to compute the output actions (speed and angular velocity)."""
         self.hidden = relu(np.dot(inputs, self.weights_input_hidden) + self.bias_hidden)
         self.output = np.dot(self.hidden, self.weights_hidden_output) + self.bias_output  # Raw output
         
@@ -44,75 +35,74 @@ class NeuralNetwork:
         return speed, angular_velocity
 
     def backward(self, input_data, td_error, action_taken):
-        """
-        Backpropagation to update the neural network based on TD error.
-
-        Parameters:
-        - input_data: The input state (e.g., ray distances).
-        - td_error: Temporal Difference (TD) error for the chosen action.
-        - action_taken: Index of the action that was taken (0 for speed, 1 for angular velocity).
-        """
-        # Compute the output error
-        output_error = np.zeros_like(self.output)  # Zero gradient for all actions
+        """Backpropagation to update the neural network based on TD error."""
+        output_error = np.zeros_like(self.output)
         output_error[action_taken] = td_error  # Apply TD error only to the chosen action
-
-        # Compute the hidden layer error
         hidden_error = output_error.dot(self.weights_hidden_output.T) * relu_derivative(self.hidden)
 
-        # Reshape for matrix operations
         input_data = input_data.reshape(1, -1)
         output_error = output_error.reshape(1, -1)
         hidden_error = hidden_error.reshape(1, -1)
         self.hidden = self.hidden.reshape(1, -1)
 
-        # Update weights and biases using gradient descent
         self.weights_hidden_output += LEARNING_RATE * self.hidden.T.dot(output_error)
         self.bias_output += LEARNING_RATE * output_error.flatten()
 
         self.weights_input_hidden += LEARNING_RATE * input_data.T.dot(hidden_error)
         self.bias_hidden += LEARNING_RATE * hidden_error.flatten()
 
-    def crossover(self, other):
+    def crossover(self, other, crossover_rate=0.5):
         """Perform crossover between two neural networks."""
-        # Create a child neural network with the same structure
         child_nn = NeuralNetwork(self.weights_input_hidden.shape[0], self.weights_input_hidden.shape[1], self.weights_hidden_output.shape[1])
-        
-        # Combine the weights of both networks
-        child_nn.weights_input_hidden = (self.weights_input_hidden + other.weights_input_hidden) / 2
-        child_nn.weights_hidden_output = (self.weights_hidden_output + other.weights_hidden_output) / 2
-        child_nn.bias_hidden = (self.bias_hidden + other.bias_hidden) / 2
-        child_nn.bias_output = (self.bias_output + other.bias_output) / 2
-        
+
+        for matrix_name in ['weights_input_hidden', 'weights_hidden_output', 'bias_hidden', 'bias_output']:
+            parent1_matrix = getattr(self, matrix_name)
+            parent2_matrix = getattr(other, matrix_name)
+
+            crossover_weight = random.uniform(0, 1)
+            new_matrix = crossover_weight * parent1_matrix + (1 - crossover_weight) * parent2_matrix
+            setattr(child_nn, matrix_name, new_matrix)
+
         return child_nn
-    
-    def mutate(self):
-        """Apply small random mutations to the network's weights."""
-        mutation_rate = 0.1  # Percentage of weights to mutate
-        mutation_strength = 0.2  # How much to change the weights by
-        
+
+    def mutate(self, mutation_rate=0.1, mutation_strength=0.2, structural_mutation_rate=0.05):
+        """Apply small random mutations to the network's weights and structure."""
+        # Weight Perturbation with Gaussian Noise
         if random.random() < mutation_rate:
             self.weights_input_hidden += np.random.randn(*self.weights_input_hidden.shape) * mutation_strength
             self.weights_hidden_output += np.random.randn(*self.weights_hidden_output.shape) * mutation_strength
             self.bias_hidden += np.random.randn(*self.bias_hidden.shape) * mutation_strength
             self.bias_output += np.random.randn(*self.bias_output.shape) * mutation_strength
 
-# Example usage
-if __name__ == "__main__":
-    # Define network dimensions
-    input_size = 10  # Example input size (e.g., 10 rays)
-    hidden_size = 8  # Number of hidden neurons
-    output_size = 2  # Outputs: speed and angular velocity
+        # Structural Mutation (Add/Remove Neurons or Connections)
+        if random.random() < structural_mutation_rate:
+            # Example: Add a neuron to the hidden layer
+            if random.random() < 0.5:
+                new_neuron = np.random.randn(self.weights_input_hidden.shape[0])  # New weight from input to the new neuron
+                self.weights_input_hidden = np.hstack((self.weights_input_hidden, new_neuron.reshape(-1, 1)))  # Add new weight
+                self.bias_hidden = np.append(self.bias_hidden, np.random.randn())  # Add bias for new neuron
 
-    # Instantiate the neural network
-    nn = NeuralNetwork(input_size, hidden_size, output_size)
+                # Also update the output weights to match the new hidden size
+                self.weights_hidden_output = np.hstack((self.weights_hidden_output, np.random.randn(self.weights_hidden_output.shape[0], 1)))  # Add new output connection
 
-    # Dummy inputs and test
-    dummy_input = np.random.rand(input_size)  # Random ray values between 0 and 1
-    speed, angular_velocity = nn.forward(dummy_input)
-    print(f"Forward Propagation Output:\nSpeed: {speed}, Angular Velocity: {angular_velocity}")
+            # Example: Remove a neuron from the hidden layer
+            else:
+                if self.weights_input_hidden.shape[1] > 1:  # Ensure at least one neuron remains
+                    idx_to_remove = random.randint(0, self.weights_input_hidden.shape[1] - 1)
+                    self.weights_input_hidden = np.delete(self.weights_input_hidden, idx_to_remove, axis=1)  # Remove column
+                    self.bias_hidden = np.delete(self.bias_hidden, idx_to_remove)  # Remove corresponding bias
 
-    # Example backpropagation
-    td_error = 0.5  # Example TD error
-    action_taken = 0  # Update for speed
-    nn.backward(dummy_input, td_error, action_taken)
-    print("Backward propagation complete. Weights updated.")
+                    # Also update the output weights to match the new hidden size
+                    self.weights_hidden_output = np.delete(self.weights_hidden_output, idx_to_remove, axis=0)  # Remove corresponding output connection
+
+                    # If no hidden neurons remain, reset the output weights to prevent errors
+                    if self.weights_input_hidden.shape[1] == 0:
+                        self.weights_hidden_output = np.zeros((0, self.weights_hidden_output.shape[1]))
+
+                    # Update the bias
+                    self.bias_hidden = np.zeros(self.weights_input_hidden.shape[1])
+
+                # Example: Add/remove a connection between hidden and output layer
+                else:
+                    connection_to_remove = random.randint(0, self.weights_hidden_output.shape[0] - 1)
+                    self.weights_hidden_output = np.delete(self.weights_hidden_output, connection_to_remove, axis=0)  # Remove weight

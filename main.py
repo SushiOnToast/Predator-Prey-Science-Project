@@ -48,6 +48,12 @@ class SpatialGrid:
             pygame.draw.line(screen, (200, 200, 200), (0, y), (screen.get_width(), y))  # Horizontal lines
 
 
+import pygame
+import random
+from constants import *
+from agents import Agent
+from debug import debug_text
+
 class Simulation:
     def __init__(self):
         # Initialize pygame
@@ -80,7 +86,14 @@ class Simulation:
 
     def load_agents(self):
         """Initialize agents (predators and prey)."""
-        self.agents = [Agent(random.randint(50, 750), random.randint(50, 550), random.choice(["predator", "prey"])) for _ in range(NUM_AGENTS)]
+        self.agents = [
+            Agent(
+                random.randint(50, 750),
+                random.randint(50, 550),
+                random.choice(["predator", "prey"]),
+            )
+            for _ in range(NUM_AGENTS)
+        ]
 
     def evaluate_fitness(self):
         """Evaluate the fitness of each agent less frequently."""
@@ -88,10 +101,16 @@ class Simulation:
             for agent in self.agents:
                 agent.update_fitness()
 
-    def select_parents(self):
-        """Select the top half of the agents based on their fitness."""
+    def rank_based_selection(self):
+        """Select parents using rank-based selection."""
         self.agents.sort(key=lambda agent: agent.fitness, reverse=True)
-        parents = self.agents[:len(self.agents) // 2]
+        total_ranks = sum(range(1, len(self.agents) + 1))
+        probabilities = [(len(self.agents) - rank) / total_ranks for rank in range(len(self.agents))]
+        num_parents = len(self.agents) // 2
+        parents = random.choices(self.agents, weights=probabilities, k=num_parents)
+        parents = list(set(parents))
+        parents.extend(self.agents[:2])  # Add top 2 agents for elitism
+        parents = parents[:num_parents]
         return parents
 
     def crossover(self, parents):
@@ -99,30 +118,15 @@ class Simulation:
         offspring = []
         for _ in range(len(self.agents) - len(parents)):
             parent1, parent2 = random.sample(parents, 2)
-            
-            # Create a child with combined neural network traits
             child_nn = parent1.nn.crossover(parent2.nn)
-
-            # Place the offspring near one of the parents (randomly choose between parent1 and parent2)
             parent = random.choice([parent1, parent2])
-            
-            # Add a small random offset to avoid exact overlap with parents
             offset_x = random.randint(-self.cell_size, self.cell_size)
             offset_y = random.randint(-self.cell_size, self.cell_size)
-            
-            # Place the child near the chosen parent
-            child_x = parent.x + offset_x
-            child_y = parent.y + offset_y
-
-            # Ensure that the offspring is still within the screen bounds
-            child_x = max(0, min(child_x, WIDTH))
-            child_y = max(0, min(child_y, HEIGHT))
+            child_x = max(0, min(parent.x + offset_x, WIDTH))
+            child_y = max(0, min(parent.y + offset_y, HEIGHT))
             child_type = parent.type
-
-            # Create the offspring agent at the chosen location
             child = Agent(child_x, child_y, child_type, nn=child_nn)
             offspring.append(child)
-        
         return offspring
 
     def mutate(self, offspring):
@@ -136,17 +140,12 @@ class Simulation:
 
     def handle_movement(self):
         """Move and draw agents on the screen."""
-        # Clear the spatial grid only if agents have moved
         self.spatial_grid.clear()
-
-        # Add agents to the grid
         for agent in self.agents:
             self.spatial_grid.add_agent(agent)
-
-        # Move agents and only consider nearby agents
         for agent in self.agents:
             nearby_agents = self.spatial_grid.get_nearby_agents(agent)
-            agent.move(self.screen, nearby_agents)  # Pass only nearby agents to the agent's move logic
+            agent.move(self.screen, nearby_agents)
             agent.draw(self.screen)
 
     def update_display(self):
@@ -157,32 +156,22 @@ class Simulation:
         """Main loop to run the simulation."""
         while self.running:
             self.screen.fill(WHITE)
-
             self.spatial_grid.draw(self.screen)
 
-            # Update the generation after a set number of steps
             if self.steps_since_last_generation >= STEPS_PER_GENERATION:
                 self.generation += 1
-                self.steps_since_last_generation = 0  # Reset the counter
-
-                # Handle reproduction and evolution at the end of the generation
-                self.evaluate_fitness()  # Evaluate less frequently
-                parents = self.select_parents()
+                self.steps_since_last_generation = 0
+                self.evaluate_fitness()
+                parents = self.rank_based_selection()
                 offspring = self.crossover(parents)
                 self.mutate(offspring)
+                self.agents = parents + offspring
 
             debug_text(self.screen, f"Generation: {self.generation}", 0, 40)
-
-            # Increment the step counter each frame
             self.steps_since_last_generation += 1
-
-            # Existing simulation logic...
             self.handle_events()
             self.handle_movement()
-
-            # Remove dead agents (still happens every frame)
             self.remove_dead_agents()
-
             self.update_display()
             self.clock.tick(FPS)
 
