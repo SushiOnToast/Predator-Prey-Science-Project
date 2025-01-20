@@ -1,3 +1,5 @@
+"""file now redundant due to NEAT implementation"""
+
 import numpy as np
 import random  # Make sure to import random for the mutation method
 from constants import MAX_SPEED, MAX_ANGULAR_VELOCITY, LEARNING_RATE  # Ensure these constants are defined

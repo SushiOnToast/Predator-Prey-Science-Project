@@ -5,6 +5,7 @@ from constants import *
 from agents import Agent
 from debug import debug_text
 from fitness_tracker import FitnessTracker
+import neat
 
 
 class SpatialGrid:
@@ -50,7 +51,7 @@ class SpatialGrid:
 
 
 class Simulation:
-    def __init__(self):
+    def __init__(self, neat_config, generation_duration=30):
         # Initialize pygame
         pygame.init()
 
@@ -69,7 +70,17 @@ class Simulation:
         self.generation = 0
         self.steps_since_last_generation = 0
 
+        # Control time per generation (in seconds)
+        self.generation_duration = generation_duration  # Time per generation in seconds
+        self.start_time = pygame.time.get_ticks()  # Track the time when the generation starts
+
         self.fitness_tracker = FitnessTracker()
+
+        # Load NEAT config
+        self.neat_config = neat_config
+        # Create the populations for predators and prey
+        self.predator_population = neat.Population(self.neat_config)
+        self.prey_population = neat.Population(self.neat_config)
 
         # Load agents
         self.load_agents()
@@ -83,61 +94,71 @@ class Simulation:
 
     def load_agents(self):
         """Initialize agents (predators and prey)."""
-        self.agents = [
-            Agent(
+        self.agents = []
+        for genome_id, genome in self.predator_population.population.items():
+            nn = neat.nn.FeedForwardNetwork.create(genome, self.neat_config)
+            agent = Agent(
                 random.randint(50, 750),
                 random.randint(50, 550),
-                random.choice(["predator", "prey"]),
+                "predator",
+                nn=nn,
+                genome_id=genome_id
             )
-            for _ in range(NUM_AGENTS)
-        ]
+            self.agents.append(agent)
 
-    def evaluate_fitness(self):
+        for genome_id, genome in self.prey_population.population.items():
+            nn = neat.nn.FeedForwardNetwork.create(genome, self.neat_config)
+            agent = Agent(
+                random.randint(50, 750),
+                random.randint(50, 550),
+                "prey",
+                nn=nn,
+                genome_id=genome_id
+            )
+            self.agents.append(agent)
+
+    def evaluate_fitness(self, genomes, config):
         """Evaluate the fitness of each agent less frequently."""
         if self.steps_since_last_generation % 10 == 0:  # Evaluate fitness every 10 frames
-            for agent in self.agents:
-                agent.update_fitness()
+            for genome_id, genome in genomes:
+                agent = self.get_agent_by_genome_id(genome_id)
+                if agent is not None:
+                    agent.update_fitness()
+                    # Ensure that fitness is set for the genome
+                    if genome.fitness is None:  # If fitness is None, set it to the agent's fitness
+                        genome.fitness = agent.fitness
+                    # Additional check in case agent's fitness is None
+                    if genome.fitness is None:
+                        genome.fitness = 0  # Set a default fitness value
+                else:
+                    print(f"Warning: Agent with genome_id {genome_id} not found.")
+                    genome.fitness = 0
+                    # When initializing genomes in NEAT:
+        for genome_id, genome in genomes:
+            if genome.fitness is None:
+                genome.fitness = 0  # Set a default fitness value for all genomes
 
-    def combined_selection(self):
-        """Select parents using a combination of tournament and roulette wheel selection."""
-        num_parents = len(self.agents) // 2
 
-        # Split parent selection between tournament and roulette
-        num_tournament = int(num_parents * 0.7)  # 70% tournament selection
-        num_roulette = num_parents - num_tournament  # Remaining for roulette selection
 
-        # Tournament Selection
-        tournament_parents = []
-        tournament_size = 3  # Configurable tournament size
-        for _ in range(num_tournament):
-            tournament = random.sample(self.agents, tournament_size)
-            winner = max(tournament, key=lambda agent: agent.fitness)
-            tournament_parents.append(winner)
+    def get_agent_by_genome_id(self, genome_id):
+        """Get the agent corresponding to a specific genome ID."""
+        for agent in self.agents:
+            if agent.genome_id == genome_id:
+                return agent
+        print(f"Agent with genome_id {genome_id} not found.")
+        return None
 
-        # Roulette Wheel Selection
-        total_fitness = sum(agent.fitness for agent in self.agents)
-        probabilities = [agent.fitness / total_fitness for agent in self.agents]
-        roulette_parents = random.choices(self.agents, weights=probabilities, k=num_roulette)
-
-        # Combine selected parents and ensure no duplicates (optional)
-        parents = list(set(tournament_parents + roulette_parents))
-
-        # Elitism: Add top agents to ensure the best genes are always preserved
-        elitism_count = 2  # Adjust as needed
-        parents.extend(sorted(self.agents, key=lambda agent: agent.fitness, reverse=True)[:elitism_count])
-
-        # Ensure final number of parents matches the requirement
-        return parents[:num_parents]
-
-    def crossover(self, parents):
-        """Perform crossover to generate new offspring."""
+    def crossover(self, parents, agent_type):
+        """Perform crossover to generate new offspring using NEAT crossover."""
         offspring = []
         for _ in range(len(self.agents) - len(parents)):
             parent1, parent2 = random.sample(parents, 2)
+            if parent1.type != parent2.type:
+                continue  # Skip crossover between predator and prey
             child_nn = parent1.nn.crossover(parent2.nn)
             parent = random.choice([parent1, parent2])
-            offset_x = random.randint(-self.cell_size, self.cell_size)
-            offset_y = random.randint(-self.cell_size, self.cell_size)
+            offset_x = random.randint(-15, 15)
+            offset_y = random.randint(-15, 15)
             child_x = max(0, min(parent.x + offset_x, WIDTH))
             child_y = max(0, min(parent.y + offset_y, HEIGHT))
             child_type = parent.type
@@ -170,53 +191,94 @@ class Simulation:
 
     def run(self):
         """Main loop to run the simulation."""
+        font = pygame.font.Font(None, 36)  # Create a font object with the desired size
         while self.running:
             self.screen.fill(WHITE)
             self.spatial_grid.draw(self.screen)
 
-            if self.steps_since_last_generation >= STEPS_PER_GENERATION:
+            current_time = pygame.time.get_ticks()
+            if current_time - self.start_time >= self.generation_duration * 1000:  # Check if generation time has passed
                 self.generation += 1
-                self.steps_since_last_generation = 0
-                self.evaluate_fitness()
-                parents = self.combined_selection()
-                offspring = self.crossover(parents)
-                self.mutate(offspring)
-                self.agents = parents + offspring
+                self.start_time = current_time  # Reset the start time for the next generation
 
-                # Check for species extinction
+                # Perform NEAT operations for both populations (predators and prey)
+                self.evaluate_fitness(self.predator_population.population.items(), self.neat_config)
+                self.predator_population.run(self.evaluate_fitness, 3)  # Run one generation for predators
+
+                self.evaluate_fitness(self.prey_population.population.items(), self.neat_config)
+                self.prey_population.run(self.evaluate_fitness, 3)  # Run one generation for prey
+
+                # Retrieve the new generation of agents
+                self.agents.extend(self.get_new_agents())
+
+                # Log fitness and handle generation-related tasks
                 predators_exist = any(agent.type == "predator" for agent in self.agents)
                 prey_exist = any(agent.type == "prey" for agent in self.agents)
 
                 if not predators_exist or not prey_exist:
                     message = "Predators extinct!" if not predators_exist else "Prey extinct!"
-                    debug_text(self.screen, message, WIDTH // 2 - 100, HEIGHT // 2 - 20, 30)
-                    pygame.display.flip()
-                    pygame.time.delay(3000)  # Show the message for 3 seconds
+                    debug_text(self.screen, message, WIDTH // 2 - 50, HEIGHT // 2, 20)
                     break
 
-                # log fitness at end of generation
-                predator_fitness = [agent.fitness for agent in self.agents if agent.type == "predator"]
-                prey_fitness = [agent.fitness for agent in self.agents if agent.type == "prey"]
-                self.fitness_tracker.log_fitness(self.generation, predator_fitness, prey_fitness)
+                self.steps_since_last_generation = 0
+            else:
+                self.steps_since_last_generation += 1
 
-            debug_text(self.screen, f"Generation: {self.generation}", 0, 40)
-            self.steps_since_last_generation += 1
-            self.handle_events()
             self.handle_movement()
-            self.remove_dead_agents()
             self.update_display()
-            self.clock.tick(FPS)
 
+            # Display the generation count on the screen
+            generation_text = font.render(f"Generation: {self.generation}", True, (0, 0, 0))  # Black text
+            self.screen.blit(generation_text, (10, 10))  # Position it at the top left
+
+            self.remove_dead_agents()
+            self.check_for_exit_events()
         self.fitness_tracker.plot_fitness()
 
-    def handle_events(self):
-        """Handle user inputs and events."""
+
+    def get_new_agents(self):
+        """Retrieve the new generation of agents after NEAT has run."""
+        new_agents = []
+        for genome_id, genome in self.predator_population.population.items():
+            nn = neat.nn.FeedForwardNetwork.create(genome, self.neat_config)
+            agent = Agent(
+                random.randint(0, self.screen.get_width()-10),
+                random.randint(0, self.screen.get_height()-10),
+                "predator",
+                nn=nn,
+                genome_id=genome_id
+            )
+            new_agents.append(agent)
+
+        for genome_id, genome in self.prey_population.population.items():
+            nn = neat.nn.FeedForwardNetwork.create(genome, self.neat_config)
+            agent = Agent(
+                random.randint(0, self.screen.get_width()-10),
+                random.randint(0, self.screen.get_height()-10),
+                "prey",
+                nn=nn,
+                genome_id=genome_id
+            )
+            new_agents.append(agent)
+
+        return new_agents
+
+    def check_for_exit_events(self):
+        """Check for any quit events to exit the simulation."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_f:  # Toggle fullscreen on 'F' key press
+                    self.toggle_fullscreen()
+                elif event.key == pygame.K_q:  # Quit the simulation on 'Q' key press
+                    self.running = False
 
 
-# Run the simulation
 if __name__ == "__main__":
-    simulation = Simulation()
+    config_path = "config-feedforward.txt"
+    config = neat.config.Config(
+        neat.DefaultGenome, neat.DefaultReproduction, neat.DefaultSpeciesSet,
+        neat.DefaultStagnation, config_path)
+    simulation = Simulation(config)
     simulation.run()
