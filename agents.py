@@ -29,6 +29,7 @@ class RayCaster:
             ray_direction = self.agent.direction + angle_offset
             distance, agent_type = self._cast_single_ray(ray_direction, screen, other_agents)
             ray_data.append((distance, agent_type))
+            # self._draw_ray(ray_direction, distance, screen)
 
         return ray_data
 
@@ -57,6 +58,18 @@ class RayCaster:
                         return t, other_agent.type  # Return distance and the type of the agent
 
         return self.max_range, None  # No intersection within range
+    
+    def _draw_ray(self, angle, distance, screen):
+        """
+        Draw a ray on the screen from the agent's position in the given direction.
+        :param angle: The direction angle of the ray.
+        :param distance: The distance the ray travels before hitting an object or max range.
+        :param screen: Pygame screen to draw the ray.
+        """
+        dx = math.cos(angle) * distance
+        dy = math.sin(angle) * distance
+        # Draw the line from the agent's position to the calculated ray end position
+        pygame.draw.line(screen, BLUE, (self.agent.x, self.agent.y), (self.agent.x + dx, self.agent.y + dy), 2)
 
 
 class Agent:
@@ -104,29 +117,37 @@ class Agent:
             # Prepare the input array for the neural network
             state = []
             for distance, agent_type in ray_data:
-                state.append(distance / self.range)
-                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))
+                state.append(distance / self.range)  # Normalize distance to range [0, 1]
+                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))  # Encode agent type
 
             # Neural network decision-making
             output = self.nn.activate(np.array(state))
             delta_angular_velocity, delta_speed = output[0], output[1]
 
+            # Apply scaling using tanh activation
+            delta_angular_velocity = math.tanh(delta_angular_velocity) * MAX_ANGULAR_VELOCITY
+            delta_speed = math.tanh(delta_speed) * MAX_ACCELERATION
+
             # Apply movement limits and update direction/speed
-            angular_velocity_limit = 1
-            speed_limit = 0.5
-            delta_angular_velocity = max(-angular_velocity_limit, min(delta_angular_velocity, angular_velocity_limit))
-            delta_speed = max(-speed_limit, min(delta_speed, speed_limit))
             self.direction += delta_angular_velocity
             self.speed += delta_speed
-            max_speed = 3
+
+            max_speed = 3.0  # Maximum allowed speed
             self.speed = max(0, min(self.speed, max_speed))
 
+            # Update position
             self.x += self.speed * math.cos(self.direction)
             self.y += self.speed * math.sin(self.direction)
 
+            # Clamp position to screen boundaries
             self.x = max(0, min(self.x, screen.get_width() - self.size))
             self.y = max(0, min(self.y, screen.get_height() - self.size))
 
+            # Calculate distance traveled in this step
+            step_distance = math.sqrt((self.x - previous_x) ** 2 + (self.y - previous_y) ** 2)
+            self.distance_traveled += step_distance
+
+            # Decrease energy over time
             self.energy -= self.energy_depletion_rate
             if self.energy <= 0:
                 if self.type == "predator":
@@ -138,9 +159,11 @@ class Agent:
             elif self.is_recovering:
                 self.manage_recovery()
 
+            # Handle digestion cooldown for predators
             if self.digestion_cooldown > 0:
                 self.digestion_cooldown -= 1
 
+            # Predator-prey interaction
             if self.type == "predator":
                 for agent in other_agents:
                     if agent.type == "prey" and agent.is_alive:
@@ -148,6 +171,7 @@ class Agent:
                         if distance <= self.size + agent.size:
                             self.eat_prey(agent)
                             break
+
 
     def eat_prey(self, prey):
         """Handle the predation and energy increase for predators."""
@@ -190,5 +214,34 @@ class Agent:
                 self.fitness += 0.5  # Reward prey for energy recovery
 
     def draw(self, screen):
+        # Body color
         color = RED if self.type == "predator" else GREEN
         pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)
+
+        # Eye parameters
+        eye_radius = self.size // 4  # Size of the eyes
+        pupil_radius = eye_radius // 2  # Size of the pupils
+        eye_offset = self.size // 2  # Distance of the eyes from the center
+        pupil_offset = eye_radius // 2  # Offset for the pupils based on direction
+
+        # Calculate eye positions relative to the agent's direction
+        eye_angle = math.pi / 4  # Angle offset for the eyes
+        left_eye_x = self.x + eye_offset * math.cos(self.direction - eye_angle)
+        left_eye_y = self.y + eye_offset * math.sin(self.direction - eye_angle)
+        right_eye_x = self.x + eye_offset * math.cos(self.direction + eye_angle)
+        right_eye_y = self.y + eye_offset * math.sin(self.direction + eye_angle)
+
+        # Draw eyes (white sclera)
+        pygame.draw.circle(screen, WHITE, (int(left_eye_x), int(left_eye_y)), eye_radius)
+        pygame.draw.circle(screen, WHITE, (int(right_eye_x), int(right_eye_y)), eye_radius)
+
+        # Calculate pupil positions based on direction
+        left_pupil_x = left_eye_x + pupil_offset * math.cos(self.direction)
+        left_pupil_y = left_eye_y + pupil_offset * math.sin(self.direction)
+        right_pupil_x = right_eye_x + pupil_offset * math.cos(self.direction)
+        right_pupil_y = right_eye_y + pupil_offset * math.sin(self.direction)
+
+        # Draw pupils (black)
+        pygame.draw.circle(screen, BLACK, (int(left_pupil_x), int(left_pupil_y)), pupil_radius)
+        pygame.draw.circle(screen, BLACK, (int(right_pupil_x), int(right_pupil_y)), pupil_radius)
+

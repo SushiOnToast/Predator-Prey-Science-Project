@@ -10,32 +10,32 @@ class FitnessTracker:
             'top_prey_fitness': [],
             'average_predator_fitness': [],
             'average_prey_fitness': [],
-            'total_predator_energy': [],
-            'total_prey_energy': [],
-            'total_predator_prey_eaten': [],
-            'total_prey_survival_time': [],
-            'total_predator_distance': [],  # Track total distance traveled by predators
-            'total_prey_distance': []  # Track total distance traveled by prey
+            'average_predator_energy': [],  # Changed to average
+            'average_prey_energy': [],  # Changed to average
+            'average_predator_prey_eaten': [],  # Changed to average
+            'average_prey_survival_time': [],  # Changed to average
+            'average_predator_distance': [],  # Changed to average
+            'average_prey_distance': []  # Changed to average
         }
 
     def log_fitness(self, generation, predator_fitness, prey_fitness, predators, preys):
         """Log fitness data for the current generation."""
         
         # Calculate metrics for the generation
-        top_predator_fitness = max(predator_fitness) if predator_fitness else 0
-        top_prey_fitness = max(prey_fitness) if prey_fitness else 0
-        avg_predator_fitness = sum(predator_fitness) / len(predator_fitness) if predator_fitness else 0
-        avg_prey_fitness = sum(prey_fitness) / len(prey_fitness) if prey_fitness else 0
+        top_predator_fitness = max((fitness for fitness in predator_fitness if fitness is not None), default=0)
+        top_prey_fitness = max((fitness for fitness in prey_fitness if fitness is not None), default=0)
+        avg_predator_fitness = sum((fitness for fitness in predator_fitness if fitness is not None)) / len(predator_fitness) if predator_fitness else 0
+        avg_prey_fitness = sum((fitness for fitness in prey_fitness if fitness is not None)) / len(prey_fitness) if prey_fitness else 0
         
-        # Additional metrics
-        total_predator_energy = sum(agent.energy for agent in predators)
-        total_prey_energy = sum(agent.energy for agent in preys)
-        total_predator_prey_eaten = sum(agent.prey_eaten for agent in predators)
-        total_prey_survival_time = sum(agent.time_survived for agent in preys)
+        # Additional metrics (changed to average)
+        avg_predator_energy = sum(agent.energy for agent in predators) / len(predators) if predators else 0
+        avg_prey_energy = sum(agent.energy for agent in preys) / len(preys) if preys else 0
+        avg_predator_prey_eaten = sum(agent.prey_eaten for agent in predators) / len(predators) if predators else 0
+        avg_prey_survival_time = sum(agent.time_survived for agent in preys) / len(preys) if preys else 0
         
-        # Track total distance traveled by predators and prey
-        total_predator_distance = sum(agent.distance_traveled for agent in predators)
-        total_prey_distance = sum(agent.distance_traveled for agent in preys)
+        # Track average distance traveled by predators and prey
+        avg_predator_distance = sum(agent.distance_traveled for agent in predators) / len(predators) if predators else 0
+        avg_prey_distance = sum(agent.distance_traveled for agent in preys) / len(preys) if preys else 0
         
         # Store the data
         self.fitness_data['generation'].append(generation)
@@ -43,12 +43,12 @@ class FitnessTracker:
         self.fitness_data['top_prey_fitness'].append(top_prey_fitness)
         self.fitness_data['average_predator_fitness'].append(avg_predator_fitness)
         self.fitness_data['average_prey_fitness'].append(avg_prey_fitness)
-        self.fitness_data['total_predator_energy'].append(total_predator_energy)
-        self.fitness_data['total_prey_energy'].append(total_prey_energy)
-        self.fitness_data['total_predator_prey_eaten'].append(total_predator_prey_eaten)
-        self.fitness_data['total_prey_survival_time'].append(total_prey_survival_time)
-        self.fitness_data['total_predator_distance'].append(total_predator_distance)
-        self.fitness_data['total_prey_distance'].append(total_prey_distance)
+        self.fitness_data['average_predator_energy'].append(avg_predator_energy)
+        self.fitness_data['average_prey_energy'].append(avg_prey_energy)
+        self.fitness_data['average_predator_prey_eaten'].append(avg_predator_prey_eaten)
+        self.fitness_data['average_prey_survival_time'].append(avg_prey_survival_time)
+        self.fitness_data['average_predator_distance'].append(avg_predator_distance)
+        self.fitness_data['average_prey_distance'].append(avg_prey_distance)
 
     def plot_fitness(self):
         """Plot the fitness data and additional metrics."""
@@ -58,6 +58,7 @@ class FitnessTracker:
 
         # Plot fitness data
         plt.figure(figsize=(14, 10))
+        plt.style.use('seaborn-v0_8')
 
         # Plot top fitness values
         plt.subplot(3, 2, 1)
@@ -70,8 +71,8 @@ class FitnessTracker:
 
         # Plot energy levels
         plt.subplot(3, 2, 2)
-        plt.plot(df['generation'], df['total_predator_energy'], label='Total Predator Energy', color='orange', marker='o')
-        plt.plot(df['generation'], df['total_prey_energy'], label='Total Prey Energy', color='blue', marker='o')
+        plt.plot(df['generation'], df['average_predator_energy'], label='Average Predator Energy', color='orange', marker='o')
+        plt.plot(df['generation'], df['average_prey_energy'], label='Average Prey Energy', color='blue', marker='o')
         plt.xlabel('Generation')
         plt.ylabel('Energy')
         plt.title('Energy Levels')
@@ -79,7 +80,7 @@ class FitnessTracker:
 
         # Plot number of prey eaten by predators
         plt.subplot(3, 2, 3)
-        plt.plot(df['generation'], df['total_predator_prey_eaten'], label='Total Prey Eaten', color='purple', marker='o')
+        plt.plot(df['generation'], df['average_predator_prey_eaten'], label='Average Prey Eaten', color='purple', marker='o')
         plt.xlabel('Generation')
         plt.ylabel('Prey Eaten')
         plt.title('Predator Prey Eaten Count')
@@ -87,7 +88,7 @@ class FitnessTracker:
 
         # Plot prey survival time
         plt.subplot(3, 2, 4)
-        plt.plot(df['generation'], df['total_prey_survival_time'], label='Total Prey Survival Time', color='cyan', marker='o')
+        plt.plot(df['generation'], df['average_prey_survival_time'], label='Average Prey Survival Time', color='cyan', marker='o')
         plt.xlabel('Generation')
         plt.ylabel('Survival Time')
         plt.title('Prey Survival Time')
@@ -95,7 +96,7 @@ class FitnessTracker:
 
         # Plot distance traveled by predators
         plt.subplot(3, 2, 5)
-        plt.plot(df['generation'], df['total_predator_distance'], label='Total Predator Distance', color='brown', marker='o')
+        plt.plot(df['generation'], df['average_predator_distance'], label='Average Predator Distance', color='brown', marker='o')
         plt.xlabel('Generation')
         plt.ylabel('Distance Traveled')
         plt.title('Predator Distance Traveled')
@@ -103,7 +104,7 @@ class FitnessTracker:
 
         # Plot distance traveled by prey
         plt.subplot(3, 2, 6)
-        plt.plot(df['generation'], df['total_prey_distance'], label='Total Prey Distance', color='yellow', marker='o')
+        plt.plot(df['generation'], df['average_prey_distance'], label='Average Prey Distance', color='yellow', marker='o')
         plt.xlabel('Generation')
         plt.ylabel('Distance Traveled')
         plt.title('Prey Distance Traveled')
@@ -111,4 +112,3 @@ class FitnessTracker:
 
         plt.tight_layout()
         plt.show()
-

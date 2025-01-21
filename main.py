@@ -1,53 +1,59 @@
 import pygame
 import random
-import math
 from constants import *
 from agents import Agent
 from debug import debug_text
 from fitness_tracker import FitnessTracker
 import neat
-
+import pyqtree
 
 class SpatialGrid:
     def __init__(self, screen_width, screen_height, cell_size):
-        self.cell_size = cell_size
-        self.grid_width = math.ceil(screen_width / cell_size)
-        self.grid_height = math.ceil(screen_height / cell_size)
-        self.cells = [[[] for _ in range(self.grid_width)] for _ in range(self.grid_height)]
+        # Initialize the bounding box of the area to track
+        self.bbox = (0, 0, screen_width, screen_height)
+        # Create the quadtree index with a max of 10 items per quad and 20 max depth
+        self.index = pyqtree.Index(bbox=self.bbox, max_items=10, max_depth=20)
 
     def clear(self):
-        """Clear all cells before recalculating positions."""
-        for row in self.cells:
-            for cell in row:
-                cell[:] = []  # Clears the list of agents in the cell
+        """Clear the quadtree index."""
+        self.index = pyqtree.Index(bbox=self.bbox, max_items=10, max_depth=20)
 
     def add_agent(self, agent):
-        """Add an agent to the grid based on its position."""
-        grid_x = int(agent.x // self.cell_size)
-        grid_y = int(agent.y // self.cell_size)
-        if 0 <= grid_x < self.grid_width and 0 <= grid_y < self.grid_height:
-            self.cells[grid_y][grid_x].append(agent)
+        """Add an agent to the quadtree with its bounding box."""
+        bbox = (agent.x, agent.y, agent.x + agent.size, agent.y + agent.size)  # Use the agent's dimensions for bbox
+        self.index.insert(agent, bbox)
 
     def get_nearby_agents(self, agent):
-        """Get agents in the same and neighboring cells."""
-        grid_x = int(agent.x // self.cell_size)
-        grid_y = int(agent.y // self.cell_size)
-        nearby_agents = []
+        """Get agents in the same and neighboring cells using the quadtree."""
+        bbox = (agent.x - agent.range, agent.y - agent.range,
+                agent.x + agent.range, agent.y + agent.range)
+        return self.index.intersect(bbox)
 
-        for dx in range(-1, 2):  # Check neighboring cells (-1, 0, +1)
-            for dy in range(-1, 2):
-                nx, ny = grid_x + dx, grid_y + dy
-                if 0 <= nx < self.grid_width and 0 <= ny < self.grid_height:
-                    nearby_agents.extend(self.cells[ny][nx])
 
-        return nearby_agents
+class Grid:
+    def __init__(self, screen_width, screen_height, cell_size=50):
+        self.cell_size = cell_size
+        self.screen_width = screen_width
+        self.screen_height = screen_height
 
     def draw(self, screen):
-        """Visualize the grid on the screen."""
-        for x in range(0, self.grid_width * self.cell_size, self.cell_size):
-            pygame.draw.line(screen, (200, 200, 200), (x, 0), (x, screen.get_height()))  # Vertical lines
-        for y in range(0, self.grid_height * self.cell_size, self.cell_size):
-            pygame.draw.line(screen, (200, 200, 200), (0, y), (screen.get_width(), y))  # Horizontal lines
+        """Draw a grid as the background."""
+        # Color for the grid lines
+        grid_color = (240, 240, 240)  # Light gray
+
+        # Draw vertical lines
+        for x in range(0, self.screen_width, self.cell_size):
+            pygame.draw.line(screen, grid_color, (x, 0), (x, self.screen_height))
+
+        # Draw horizontal lines
+        for y in range(0, self.screen_height, self.cell_size):
+            pygame.draw.line(screen, grid_color, (0, y), (self.screen_width, y))
+
+    def update_size(self, screen_width, screen_height):
+        """Update the grid size when the screen is resized."""
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+
 
 
 class Simulation:
@@ -67,6 +73,7 @@ class Simulation:
         # Initialize spatial grid
         self.cell_size = 50  # Adjust based on agent density and environment size
         self.spatial_grid = SpatialGrid(WIDTH, HEIGHT, self.cell_size)
+        self.grid = Grid(WIDTH, HEIGHT, 50)
         self.generation = 0
         self.steps_since_last_generation = 0
 
@@ -166,17 +173,23 @@ class Simulation:
             nearby_agents = self.spatial_grid.get_nearby_agents(agent)
             agent.move(self.screen, nearby_agents)
             agent.draw(self.screen)
+    
+    def draw_interface(self):
+        """Draw interface elements like the generation counter and FPS."""
+        font = pygame.font.Font(None, 25)  # Create a font object with the desired size
+        generation_text = font.render(f"Generation: {self.generation}", True, (0, 0, 0))  # Black text
+        self.screen.blit(generation_text, (10, 10))  # Position it at the top-left corner
 
     def update_display(self):
         """Update the display every frame."""
+        self.grid.update_size(self.screen.get_width(), self.screen.get_height())
         pygame.display.flip()
 
     def run(self):
         """Main loop to run the simulation."""
-        font = pygame.font.Font(None, 36)  # Create a font object with the desired size
         while self.running:
             self.screen.fill(WHITE)
-            self.spatial_grid.draw(self.screen)
+            self.grid.draw(self.screen)
 
             current_time = pygame.time.get_ticks()
             if current_time - self.start_time >= self.generation_duration * 1000:  # Check if generation time has passed
@@ -224,11 +237,8 @@ class Simulation:
                 self.steps_since_last_generation += 1
 
             self.handle_movement()
+            self.draw_interface()
             self.update_display()
-
-            # Display the generation count on the screen
-            generation_text = font.render(f"Generation: {self.generation}", True, (0, 0, 0))  # Black text
-            self.screen.blit(generation_text, (10, 10))  # Position it at the top left
 
             self.remove_dead_agents()
             self.check_for_exit_events()
