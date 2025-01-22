@@ -13,12 +13,6 @@ class RayCaster:
         self.max_range = max_range
 
     def cast_rays(self, screen, all_agents):
-        """
-        Cast rays in the agent's field of view and return distances to the closest objects and their types.
-        :param screen: Pygame screen for boundary checks.
-        :param all_agents: List of all agents in the environment.
-        :return: List of tuples (distance, type) for each ray.
-        """
         other_agents = [agent for agent in all_agents if agent != self.agent and agent.is_alive]
         ray_data = []
 
@@ -29,7 +23,6 @@ class RayCaster:
             ray_direction = self.agent.direction + angle_offset
             distance, agent_type = self._cast_single_ray(ray_direction, screen, other_agents)
             ray_data.append((distance, agent_type))
-            # self._draw_ray(ray_direction, distance, screen)
 
         return ray_data
 
@@ -41,11 +34,10 @@ class RayCaster:
             x = self.agent.x + t * dx
             y = self.agent.y + t * dy
 
-            # Stop at screen borders
             if not (0 <= x < screen.get_width() and 0 <= y < screen.get_height()):
-                return t, None  # Return distance and no agent type
+                return t, None
 
-            ray_rect = pygame.Rect(x, y, 2, 2)  # Small rectangle to represent the ray
+            ray_rect = pygame.Rect(x, y, 2, 2)
 
             for other_agent in nearby_agents:
                 if other_agent != self.agent and other_agent.is_alive:
@@ -55,21 +47,9 @@ class RayCaster:
                                             other_agent.size * 2)
 
                     if ray_rect.colliderect(agent_rect):
-                        return t, other_agent.type  # Return distance and the type of the agent
+                        return t, other_agent.type  
 
-        return self.max_range, None  # No intersection within range
-    
-    def _draw_ray(self, angle, distance, screen):
-        """
-        Draw a ray on the screen from the agent's position in the given direction.
-        :param angle: The direction angle of the ray.
-        :param distance: The distance the ray travels before hitting an object or max range.
-        :param screen: Pygame screen to draw the ray.
-        """
-        dx = math.cos(angle) * distance
-        dy = math.sin(angle) * distance
-        # Draw the line from the agent's position to the calculated ray end position
-        pygame.draw.line(screen, BLUE, (self.agent.x, self.agent.y), (self.agent.x + dx, self.agent.y + dy), 2)
+        return self.max_range, None
 
 
 class Agent:
@@ -101,7 +81,6 @@ class Agent:
         self.fitness = 0
         self.genome_id = genome_id
 
-        # Additional metrics
         self.distance_traveled = 0  # Track the distance the agent has traveled
 
     def move(self, screen, other_agents):
@@ -117,8 +96,28 @@ class Agent:
             # Prepare the input array for the neural network
             state = []
             for distance, agent_type in ray_data:
-                state.append(distance / self.range)  # Normalize distance to range [0, 1]
-                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))  # Encode agent type
+                # Normalize distance to range [0, 1]
+                state.append(distance / self.range)
+                # Encode agent type (0 = none, 1 = predator, 2 = prey)
+                state.append(0 if agent_type is None else (1 if agent_type == 'predator' else 2))
+
+            # Add the agent's energy level as an input (normalized to [0, 1])
+            state.append(self.energy / ENERGY)
+
+            # Calculate a reward/penalty signal
+            reward_signal = 0
+            if self.type == "predator":
+                # Reward predators for eating prey, penalize for not eating
+                reward_signal = 1 if self.prey_eaten > 0 else -0.1
+            elif self.type == "prey":
+                # Reward prey for recovering energy or surviving, penalize for low energy
+                if self.is_recovering:
+                    reward_signal = 1
+                else:
+                    reward_signal = -0.1 if self.energy < ENERGY * 0.2 else 0.5
+
+            # Add reward/penalty signal to the state
+            state.append(reward_signal)
 
             # Neural network decision-making
             output = self.nn.activate(np.array(state))
@@ -127,6 +126,10 @@ class Agent:
             # Apply scaling using tanh activation
             delta_angular_velocity = math.tanh(delta_angular_velocity) * MAX_ANGULAR_VELOCITY
             delta_speed = math.tanh(delta_speed) * MAX_ACCELERATION
+
+            # Apply small random noise to prevent circling and encourage exploration
+            delta_angular_velocity += random.uniform(-0.1, 0.1)
+            delta_speed += random.uniform(-0.1, 0.1)
 
             # Apply movement limits and update direction/speed
             self.direction += delta_angular_velocity
@@ -172,6 +175,9 @@ class Agent:
                             self.eat_prey(agent)
                             break
 
+            # # Check for immediate reproduction condition
+            # if self.energy >= self.reproduction_threshold:
+            #     self.reproduce_immediate(other_agents)
 
     def eat_prey(self, prey):
         """Handle the predation and energy increase for predators."""
@@ -181,7 +187,26 @@ class Agent:
             self.prey_eaten += 1
             self.digestion_cooldown = 10  # Predator enters digestion cooldown
 
-    def reproduce(self, partner=None):
+    def reproduce_immediate(self, other_agents):
+        """Immediately reproduce if the agent has enough energy."""
+        partner = self.find_reproduction_partner(other_agents)
+        if partner:
+            offspring = self.reproduce(partner)
+            # Position the offspring close to one of the parents
+            offspring.x = self.x + random.uniform(-20, 20)
+            offspring.y = self.y + random.uniform(-20, 20)
+            offspring.energy = ENERGY // 2  # Start with some initial energy
+            return offspring
+        return None
+
+    def find_reproduction_partner(self, other_agents):
+        """Find another agent of the same type with enough energy to reproduce."""
+        for agent in other_agents:
+            if agent != self and agent.is_alive and agent.type == self.type and agent.energy >= self.reproduction_threshold:
+                return agent
+        return None
+
+    def reproduce(self, partner):
         """Handle the reproduction process using NEAT's built-in crossover."""
         if partner is None:
             return None  # No partner, no reproduction
@@ -202,46 +227,23 @@ class Agent:
                 self.is_stationary = False
                 self.energy = ENERGY  # Maximum energy
 
-    def update_fitness(self):
-        """Update the fitness of the agent based on its actions."""
+    def update_fitness(self, other_agents):
         if self.type == "predator":
-            # Predator's fitness increases with each prey eaten
             self.fitness += self.prey_eaten
+            self.fitness -= self.distance_traveled * 0.005  # Penalize excessive movement
         elif self.type == "prey":
-            # Prey's fitness increases with survival time and energy recovery
-            self.fitness += self.time_survived * 0.1  # Adjust multiplier as needed
+            self.fitness += self.time_survived * 0.1
             if self.is_recovering:
-                self.fitness += 0.5  # Reward prey for energy recovery
+                self.fitness += 0.5
+            self.fitness += self.distance_traveled * 0.01
+
+            # Reward evasion
+            closest_predator_distance = min(
+                math.sqrt((self.x - predator.x) ** 2 + (self.y - predator.y) ** 2)
+                for predator in other_agents if predator.type == "predator" and predator.is_alive
+            )
+            self.fitness += closest_predator_distance * 0.001
 
     def draw(self, screen):
-        # Body color
         color = RED if self.type == "predator" else GREEN
         pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)
-
-        # Eye parameters
-        eye_radius = self.size // 4  # Size of the eyes
-        pupil_radius = eye_radius // 2  # Size of the pupils
-        eye_offset = self.size // 2  # Distance of the eyes from the center
-        pupil_offset = eye_radius // 2  # Offset for the pupils based on direction
-
-        # Calculate eye positions relative to the agent's direction
-        eye_angle = math.pi / 4  # Angle offset for the eyes
-        left_eye_x = self.x + eye_offset * math.cos(self.direction - eye_angle)
-        left_eye_y = self.y + eye_offset * math.sin(self.direction - eye_angle)
-        right_eye_x = self.x + eye_offset * math.cos(self.direction + eye_angle)
-        right_eye_y = self.y + eye_offset * math.sin(self.direction + eye_angle)
-
-        # Draw eyes (white sclera)
-        pygame.draw.circle(screen, WHITE, (int(left_eye_x), int(left_eye_y)), eye_radius)
-        pygame.draw.circle(screen, WHITE, (int(right_eye_x), int(right_eye_y)), eye_radius)
-
-        # Calculate pupil positions based on direction
-        left_pupil_x = left_eye_x + pupil_offset * math.cos(self.direction)
-        left_pupil_y = left_eye_y + pupil_offset * math.sin(self.direction)
-        right_pupil_x = right_eye_x + pupil_offset * math.cos(self.direction)
-        right_pupil_y = right_eye_y + pupil_offset * math.sin(self.direction)
-
-        # Draw pupils (black)
-        pygame.draw.circle(screen, BLACK, (int(left_pupil_x), int(left_pupil_y)), pupil_radius)
-        pygame.draw.circle(screen, BLACK, (int(right_pupil_x), int(right_pupil_y)), pupil_radius)
-
