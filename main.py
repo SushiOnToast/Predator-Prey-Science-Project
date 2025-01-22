@@ -29,33 +29,6 @@ class SpatialGrid:
                 agent.x + agent.range, agent.y + agent.range)
         return self.index.intersect(bbox)
 
-
-class Grid:
-    def __init__(self, screen_width, screen_height, cell_size=50):
-        self.cell_size = cell_size
-        self.screen_width = screen_width
-        self.screen_height = screen_height
-
-    def draw(self, screen):
-        """Draw a grid as the background."""
-        # Color for the grid lines
-        grid_color = (240, 240, 240)  # Light gray
-
-        # Draw vertical lines
-        for x in range(0, self.screen_width, self.cell_size):
-            pygame.draw.line(screen, grid_color, (x, 0), (x, self.screen_height))
-
-        # Draw horizontal lines
-        for y in range(0, self.screen_height, self.cell_size):
-            pygame.draw.line(screen, grid_color, (0, y), (self.screen_width, y))
-
-    def update_size(self, screen_width, screen_height):
-        """Update the grid size when the screen is resized."""
-        self.screen_width = screen_width
-        self.screen_height = screen_height
-
-
-
 class Simulation:
     def __init__(self, neat_config, generation_duration=30):
         # Initialize pygame
@@ -73,7 +46,6 @@ class Simulation:
         # Initialize spatial grid
         self.cell_size = 50  # Adjust based on agent density and environment size
         self.spatial_grid = SpatialGrid(WIDTH, HEIGHT, self.cell_size)
-        self.grid = Grid(WIDTH, HEIGHT, 50)
         self.generation = 0
         self.steps_since_last_generation = 0
 
@@ -88,6 +60,8 @@ class Simulation:
         # Create the populations for predators and prey
         self.predator_population = neat.Population(self.neat_config)
         self.prey_population = neat.Population(self.neat_config)
+
+        self.plotting = False
 
         # Load agents
         self.load_agents()
@@ -130,7 +104,7 @@ class Simulation:
             for genome_id, genome in genomes:
                 agent = self.get_agent_by_genome_id(genome_id)
                 if agent is not None:
-                    agent.update_fitness()
+                    agent.update_fitness(self.agents)
                     # Ensure that fitness is set for the genome
                     if genome.fitness is None:  # If fitness is None, set it to the agent's fitness
                         genome.fitness = agent.fitness
@@ -164,6 +138,18 @@ class Simulation:
         """Remove dead agents from the simulation."""
         self.agents = [agent for agent in self.agents if agent.is_alive]
 
+    def cull_population(self):
+        """Cull underperforming agents based on custom criteria."""
+        fitness_threshold = max(1, min(50, self.generation * 0.5))  # Example of dynamic fitness threshold
+        energy_threshold = 20  # Minimum energy threshold for survival
+
+        # Cull agents that have low fitness or low energy
+        self.agents = [
+            agent for agent in self.agents
+            if agent.fitness >= fitness_threshold and agent.energy >= energy_threshold
+        ]
+
+
     def handle_movement(self):
         """Move and draw agents on the screen."""
         self.spatial_grid.clear()
@@ -172,7 +158,8 @@ class Simulation:
         for agent in self.agents:
             nearby_agents = self.spatial_grid.get_nearby_agents(agent)
             agent.move(self.screen, nearby_agents)
-            agent.draw(self.screen)
+            if not self.plotting:
+                agent.draw(self.screen)
     
     def draw_interface(self):
         """Draw interface elements like the generation counter and FPS."""
@@ -182,19 +169,26 @@ class Simulation:
 
     def update_display(self):
         """Update the display every frame."""
-        self.grid.update_size(self.screen.get_width(), self.screen.get_height())
         pygame.display.flip()
+
+    def recalculate_fitness_for_all_agents(self, agents):
+        """Recalculate fitness for all agents."""
+        for agent in agents:
+            agent.update_fitness(agents)
+            print(f"Recalculated fitness for agent {agent.genome_id}: {agent.fitness}")
+
 
     def run(self):
         """Main loop to run the simulation."""
         while self.running:
             self.screen.fill(WHITE)
-            self.grid.draw(self.screen)
 
             current_time = pygame.time.get_ticks()
             if current_time - self.start_time >= self.generation_duration * 1000:  # Check if generation time has passed
                 self.generation += 1
                 self.start_time = current_time  # Reset the start time for the next generation
+
+                self.recalculate_fitness_for_all_agents(self.agents)
 
                 # Perform NEAT operations for both populations (predators and prey)
                 self.evaluate_fitness(self.predator_population.population.items(), self.neat_config)
@@ -202,6 +196,7 @@ class Simulation:
 
                 self.evaluate_fitness(self.prey_population.population.items(), self.neat_config)
                 self.prey_population.run(self.evaluate_fitness, 3)  # Run one generation for prey
+                # self.cull_population()
 
                 # Retrieve the new generation of agents
                 self.agents.extend(self.get_new_agents())
