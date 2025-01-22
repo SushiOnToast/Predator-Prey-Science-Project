@@ -21,7 +21,15 @@ class FitnessTracker:
     def log_fitness(self, generation, predator_fitness, prey_fitness, predators, preys):
         """Log fitness data for the current generation."""
         
-        # Calculate metrics for the generation
+        # Recalculate fitness for all predators and prey
+        for agent in predators + preys:
+            agent.update_fitness(predators + preys)  # Pass all agents as "other_agents" for the calculation
+        
+        # Replace the predator_fitness and prey_fitness lists with the updated fitness values
+        predator_fitness = [agent.fitness for agent in predators]
+        prey_fitness = [agent.fitness for agent in preys]
+
+        # After recalculating fitness, calculate the average and top fitness values
         top_predator_fitness = max((fitness for fitness in predator_fitness if fitness is not None), default=0)
         top_prey_fitness = max((fitness for fitness in prey_fitness if fitness is not None), default=0)
         avg_predator_fitness = sum((fitness for fitness in predator_fitness if fitness is not None)) / len(predator_fitness) if predator_fitness else 0
@@ -50,6 +58,7 @@ class FitnessTracker:
         self.fitness_data['average_predator_distance'].append(avg_predator_distance)
         self.fitness_data['average_prey_distance'].append(avg_prey_distance)
 
+    
     def plot_fitness(self):
         """Plot the fitness data and additional metrics."""
         
@@ -60,10 +69,12 @@ class FitnessTracker:
         plt.figure(figsize=(14, 10))
         plt.style.use('seaborn-v0_8')
 
-        # Plot top fitness values
+        # Plot top fitness values and average fitness values on the same graph
         plt.subplot(3, 2, 1)
         plt.plot(df['generation'], df['top_predator_fitness'], label='Top Predator Fitness', color='red', marker='o')
         plt.plot(df['generation'], df['top_prey_fitness'], label='Top Prey Fitness', color='green', marker='o')
+        plt.plot(df['generation'], df['average_predator_fitness'], label='Average Predator Fitness', color='orange', linestyle='--', marker='x')
+        plt.plot(df['generation'], df['average_prey_fitness'], label='Average Prey Fitness', color='blue', linestyle='--', marker='x')
         plt.xlabel('Generation')
         plt.ylabel('Fitness')
         plt.title('Fitness Evolution')
