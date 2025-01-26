@@ -245,5 +245,37 @@ class Agent:
             self.fitness += closest_predator_distance * 0.001
 
     def draw(self, screen):
-        color = RED if self.type == "predator" else GREEN
-        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.size)
+        # Draw the main body of the agent
+        body_color = RED if self.type == "predator" else GREEN
+        pygame.draw.circle(screen, body_color, (int(self.x), int(self.y)), self.size)
+
+        # Calculate eye positions
+        eye_offset_angle = math.pi / 4  # Offset for eye placement
+        eye_distance = self.size // 2  # Distance from the center of the agent
+
+        # Position of the first eye
+        eye1_x = int(self.x + eye_distance * math.cos(self.direction - eye_offset_angle))
+        eye1_y = int(self.y + eye_distance * math.sin(self.direction - eye_offset_angle))
+
+        # Position of the second eye
+        eye2_x = int(self.x + eye_distance * math.cos(self.direction + eye_offset_angle))
+        eye2_y = int(self.y + eye_distance * math.sin(self.direction + eye_offset_angle))
+
+        # Draw the whites of the eyes
+        eye_radius = self.size // 4
+        pygame.draw.circle(screen, WHITE, (eye1_x, eye1_y), eye_radius)
+        pygame.draw.circle(screen, WHITE, (eye2_x, eye2_y), eye_radius)
+
+        # Calculate pupil positions within the eyes
+        pupil_radius = eye_radius // 2
+        pupil_distance = eye_radius // 2  # Pupils offset slightly in the direction of movement
+
+        pupil1_x = int(eye1_x + pupil_distance * math.cos(self.direction))
+        pupil1_y = int(eye1_y + pupil_distance * math.sin(self.direction))
+
+        pupil2_x = int(eye2_x + pupil_distance * math.cos(self.direction))
+        pupil2_y = int(eye2_y + pupil_distance * math.sin(self.direction))
+
+        # Draw the pupils
+        pygame.draw.circle(screen, BLACK, (pupil1_x, pupil1_y), pupil_radius)
+        pygame.draw.circle(screen, BLACK, (pupil2_x, pupil2_y), pupil_radius)
